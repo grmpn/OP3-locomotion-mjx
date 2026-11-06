@@ -1,0 +1,39 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "op3-locomotion"
+version = "0.1.0"
+description = "A small MJX and Brax PPO walking baseline for Robotis OP3"
+requires-python = ">=3.12,<3.13"
+dependencies = [
+  "jax[cuda13]==0.8.2; sys_platform == 'linux'",
+  "jax==0.8.2; sys_platform != 'linux'",
+  "jaxlib==0.8.2",
+  "mujoco==4.0.0",
+  "mujoco-mjx[warp]==4.0.0",
+  "brax==0.14.2",
+  "flax==0.12.2",
+  "orbax-checkpoint==0.11.33",
+  "numpy>=2.0,<3",
+  "imageio[ffmpeg]>=2.37,<3",
+]
+
+[project.scripts]
+op3-train = "op3_locomotion.train:main"
+op3-evaluate = "op3_locomotion.evaluate:main"
+op3-play = "op3_locomotion.play:main"
+
+[dependency-groups]
+dev = ["ruff>=0.14,<1"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I"]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/op3_locomotion"]
