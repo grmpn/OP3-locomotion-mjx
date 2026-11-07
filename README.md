@@ -1,7 +1,8 @@
 # OP3 locomotion with MJX and PPO
 
 A small Robotis OP3 walking baseline using direct MuJoCo MJX physics and Brax's
-standard PPO trainer. The native MuJoCo demo loads exported policy parameters and
+standard PPO trainer. Experiment decisions, evidence, and run lineage are recorded
+in [EXPERIMENTS.md](EXPERIMENTS.md). The native MuJoCo demo loads exported policy parameters and
 accepts body-frame velocity commands from the keyboard. There is no domain
 randomization, terrain generation, reset noise, or gait generator.
 
@@ -71,7 +72,8 @@ uv run op3-train --output outputs/baseline --num-timesteps 30000000
 The output directory must be new. Each run prints the selected GPU and records
 `config.json`, `mapping.json`, `run.json`, `metrics.jsonl`, and exports under
 `checkpoints/<12-digit-step>/`. A `checkpoints/latest` pointer selects the last
-complete export. Metrics include individual weighted reward terms, tracking
+complete export. Training episode return is `episode/sum_reward`; evaluation return is
+`eval/episode_reward`. Metrics include individual weighted reward terms, tracking
 errors, episode lengths, PPO losses, and throughput. Brax's `eval/episode_*`
 metrics aggregate over each episode; divide error sums by episode length to
 compare to per-step evaluation errors. `finished.json` indicates successful
@@ -265,3 +267,17 @@ steps. Its seven-million-step checkpoint reaches about 0.18 m/s for a 0.15 m/s
 forward command, with repeated foot lift/landing, but substantial uncommanded yaw.
 Rightward motion and in-place turns remain poor. This intermediate checkpoint is
 not the final walking deliverable; reports are in `outputs/baseline-eval-7m/`.
+
+Evaluation at 15,052,800 baseline steps passes standing and all four translation
+directions, but left in-place yaw settles near zero. Refinement therefore starts
+from that saved policy and changes only command sampling:
+
+```sh
+uv run op3-train --config outputs/baseline/config.json --output outputs/balanced \
+  --initialize-from outputs/baseline/checkpoints/000015052800 \
+  --command-sampling balanced --num-timesteps 15000000 --num-evals 16
+```
+
+The baseline run was deliberately stopped after saving 16,056,320 steps;
+`outputs/baseline/stopped.json` records the reason. This is a policy warm start,
+not an optimizer/RNG resume. Refinement behavior still requires evaluation.

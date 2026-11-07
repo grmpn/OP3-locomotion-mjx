@@ -95,6 +95,8 @@ def main():
         batch = jax.jit(wrapped.reset)(jax.random.split(jax.random.PRNGKey(10), 2))
         wrapped_step = jax.jit(wrapped.step)
         batch = wrapped_step(batch, jp.zeros((2, env.action_size)))
+        assert "reward" not in batch.info["episode_metrics"]
+        np.testing.assert_allclose(batch.info["episode_metrics"]["sum_reward"], batch.reward)
         assert not np.asarray(batch.done).any()
         batch = wrapped_step(batch, jp.zeros((2, env.action_size)))
         np.testing.assert_array_equal(batch.done, np.ones(2))

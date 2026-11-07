@@ -354,7 +354,11 @@ class AutoReset(Wrapper):
     """Reset command, previous action, and physics together; preserve episode metrics."""
 
     def reset(self, rng):
-        return self.env.reset(rng)
+        state = self.env.reset(rng)
+        # EpisodeWrapper deliberately skips the per-step "reward" metric when
+        # aggregating; its actual return is "sum_reward". Drop the unused zero.
+        state.info["episode_metrics"].pop("reward", None)
+        return state
 
     def step(self, state, action):
         info = {**state.info, "steps": jp.where(state.done, 0, state.info["steps"])}
