@@ -3,6 +3,7 @@
 import argparse
 import json
 import time
+from dataclasses import replace
 from pathlib import Path
 
 import jax
@@ -10,6 +11,7 @@ import jax.numpy as jp
 import mujoco
 import numpy as np
 
+from op3_locomotion.config import EnvConfig
 from op3_locomotion.env import OP3Env, wrap_for_training
 from op3_locomotion.observations import observe, world_to_body
 
@@ -18,6 +20,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--gpu", action="store_true", help="Also test GPU MJX physics and wrappers")
     parser.add_argument("--output", type=Path)
+    parser.add_argument("--collision-maxhullvert", type=int, default=-1)
     args = parser.parse_args()
     if not args.gpu:
         jax.config.update("jax_platforms", "cpu")
@@ -29,7 +32,11 @@ def main():
     np.testing.assert_allclose(
         world_to_body(jp.array(quat), jp.array(vector)), matrix.reshape(3, 3).T @ vector, atol=1e-7
     )
-    env = OP3Env(build_mjx=args.gpu, batch_capacity=2)
+    env = OP3Env(
+        replace(EnvConfig(), collision_maxhullvert=args.collision_maxhullvert),
+        build_mjx=args.gpu,
+        batch_capacity=2,
+    )
     m = env.model
     d = mujoco.MjData(m)
     d.qpos[:] = np.asarray(env.nominal)
@@ -44,6 +51,7 @@ def main():
     assert abs(d.qpos[0]) < 0.1, "Nominal pose drifts excessively"
     report = {
         "device": str(jax.devices()[0]),
+        "collision_maxhullvert": args.collision_maxhullvert,
         "native_standing_height": float(d.qpos[2]),
         "initial_height": float(env.nominal[2]),
         "frame_rotation": "passed",

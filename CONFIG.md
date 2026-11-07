@@ -253,3 +253,24 @@ released axis. W/S control x, A/D y, Q/E yaw; opposing held keys cancel.
 
 These viewer ramps do not alter training's sampled command schedule. Existing
 catch-up cap is 0.25 s; command ramps follow simulated time if rendering is slow.
+
+## Slip and collision trials (2026-11-07)
+
+These are experimental exports, separate from the selected `outputs/op3-policy`.
+All four trials initialize actor, critic and observation normalization from that
+export. They restart the optimizer/RNG/step count and use its balanced commands.
+PPO settings match the current column above except `num_timesteps=1000000` and
+`num_evals=3`; actual final step is 1,003,520. Seed is 0, with 512 training and
+32 evaluation environments, batch 128 × 4, and unroll length 20.
+
+| Run under `outputs/` | Slip weight | Hull cap |
+| --- | ---: | ---: |
+| `slip-hull-full` | −5 | −1 |
+| `slip-hull-16` | −5 | 16 |
+| `slip-hull-8` | −5 | 8 |
+| `slip-control-zero` | 0 | −1 |
+
+Each uses the code-default 1 N slip support threshold. Other reward, environment,
+network and normalization settings match the selected policy. Standalone native
+evaluations use seed 123, 10 s per command segment, and the standard eight cases.
+Results and selection decisions belong in `EXPERIMENTS.md`.

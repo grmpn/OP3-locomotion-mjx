@@ -1,5 +1,6 @@
 """Focused regressions for contact slip, collision hulls, and held-key commands."""
 
+import json
 from dataclasses import replace
 
 import glfw
@@ -8,6 +9,7 @@ import jax.numpy as jp
 import mujoco
 import numpy as np
 
+from op3_locomotion.checkpoints import validate_mapping
 from op3_locomotion.config import EnvConfig
 from op3_locomotion.env import OP3Env
 from op3_locomotion.play import KeyboardCommand
@@ -71,6 +73,9 @@ def main():
     jax.config.update("jax_platforms", "cpu")
     check_keyboard()
     env = OP3Env(build_mjx=False)
+    legacy_mapping = json.loads(json.dumps(env.mapping()))
+    legacy_mapping.pop("collision_maxhullvert")
+    validate_mapping(legacy_mapping, env.mapping())
     m, d = env.model, mujoco.MjData(env.model)
     d.qpos[:] = np.asarray(env.nominal)
     d.ctrl[:] = np.asarray(env.nominal_ctrl)
@@ -110,6 +115,12 @@ def main():
 
     for limit in (16, 8):
         reduced = OP3Env(replace(EnvConfig(), collision_maxhullvert=limit), build_mjx=False)
+        try:
+            validate_mapping(legacy_mapping, reduced.mapping())
+        except ValueError:
+            pass
+        else:
+            raise AssertionError("Inference accepted a different collision hull cap")
         for field in (
             "body_mass",
             "body_inertia",

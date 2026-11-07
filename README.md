@@ -322,6 +322,8 @@ uv run ruff check src scripts
 uv run python scripts/check_env.py
 uv run python scripts/check_env.py --gpu --output outputs/checks.json
 uv run python scripts/check_slip_controls.py
+# Check a reduced hull profile with the same native/MJX action sequence:
+uv run python scripts/check_env.py --gpu --collision-maxhullvert 8
 ```
 
 The GPU check covers fixed physical resets under different command seeds,

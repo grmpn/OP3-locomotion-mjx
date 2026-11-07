@@ -430,3 +430,138 @@ balancing alone produced the improvement. Longer training was not monotonically
 better; directional held-command tests exposed a regression hidden by average
 return. Future work should start from the saved evidence and those limitations,
 not from a claim that all command tracking is solved.
+
+## D019 Contact-slip penalty and collision hull reduction
+
+**2026-11-07, user-requested experiment.** Implemented in `e28b286`. The earlier
+baseline's backward slip and the user's request motivate a small additional
+penalty. Use the actual foot/floor contact-point tangential velocities, including
+rotation, rather than foot-body-origin speed. MuJoCo contact sensors provide four
+fixed contact slots for each of the four original foot boxes. Within each foot,
+normal-force-weight the squared tangential speed; sum the two foot averages,
+excluding feet carrying at most 1 N. Weight −5 and multiply by control timestep
+once. Penalize slip during standing too, without penalizing airborne feet. These
+reward-only sensors do not change observations, dynamics or actuator mappings.
+Old exports/configs load with zero slip weight, preserving their objective.
+
+Also expose `collision_maxhullvert`, using MuJoCo's compiler to reduce collision
+hulls in memory. Original source assets, visual meshes, explicit inertias, foot
+boxes, floor, contact masks, friction, actuator settings and control timing stay
+unchanged. Hulls approximate mesh contact surfaces and the cap is saved in each
+export; native inference and MJX use the same preparation. No new randomization,
+terrain, gait generator, or custom learning algorithm was introduced.
+
+Four runs start independently from the selected `outputs/op3-policy` export.
+All use seed 0, balanced commands, 512 environments, batch 128 × 4, unroll 20,
+32 evaluation environments and three evaluations. Each requests 1M transitions
+and completes 1,003,520. Other settings match the selected policy. Warm starts
+restore actor, critic and normalization; optimizer, RNG and step count restart.
+
+| Run | Start UTC | Slip weight | Hull cap |
+| --- | --- | ---: | ---: |
+| `slip-hull-full` | 20:19:24 | −5 | −1 (original) |
+| `slip-hull-16` | 20:22:04 | −5 | 16 |
+| `slip-hull-8` | 20:24:38 | −5 | 8 |
+| `slip-control-zero` | 20:27:01 | 0 | −1 |
+
+The first trial ran the implementation before its commit; the later runs record
+`e28b286`. Run provenance flags the workspace as dirty (including pre-existing
+untracked `.obsidian/`). Generated outputs and that unrelated directory were not
+committed. Each run has resolved settings, versions, mapping, reward metrics,
+checkpoints and a completion record under `outputs/<run>/`.
+
+### Collision timing
+
+| Hull cap | Total vertices in 15 active collision hulls | Trainer elapsed | Median steady transitions/s |
+| --- | ---: | ---: | ---: |
+| Original | 1,973 | 122.6 s | 25,423 |
+| 16 | 240 | 124.4 s | 25,852 |
+| 8 | 120 | 126.8 s | 25,174 |
+
+Elapsed time comes from `finished.json` and includes PPO compilation, evaluations
+and exports, starting after environment construction. Steady throughput is the
+median `episode/sps`, excluding the first interval after initialization and the
+mid-run evaluation (steps 51,200 and 512,000). The 16-vertex cap changes this
+median by +1.7%; the 8-vertex cap changes it by −1.0%. Neither demonstrates a
+training-time decrease. These are single runs on the same RTX 3070 Laptop GPU,
+not a repeated performance study; small differences are within observed timing
+variation. Most walking contacts use the unchanged foot boxes, so reducing mesh
+vertices need not reduce the main contact-solving work. This is an interpretation,
+not a measured bottleneck profile. Keep the original hulls as the default.
+
+### Policy behavior
+
+All four final exports were reloaded and evaluated in native MuJoCo with seed
+123, seven independent 10 s commands and the continuous 50 s change sequence.
+All survived. Reports and trajectories are in `outputs/<run>-eval/`.
+
+The following means give equal weight to the eight cases; slip additionally
+averages both feet's supported contact-slip speeds. RMSE includes transients.
+Slip is the existing diagnostic in m/s, not the squared training reward.
+
+| Policy | Mean slip (m/s) | Mean planar RMSE (m/s) | Mean yaw RMSE (rad/s) |
+| --- | ---: | ---: | ---: |
+| Existing selected policy | 0.005541 | 0.019933 | 0.122825 |
+| Extra 1M, zero slip weight | 0.005399 | 0.018398 | 0.121489 |
+| Extra 1M, slip −5, original hulls | 0.004697 | 0.020265 | 0.111091 |
+| Extra 1M, slip −5, cap 16 | 0.004746 | 0.017926 | 0.113663 |
+| Extra 1M, slip −5, cap 8 | 0.004823 | 0.020333 | 0.144029 |
+
+Against the matched zero-weight control, the original-hull slip trial reduces
+mean slip by 13.0% and backward slip by 34.9% (0.01266 → 0.00824 m/s).
+Planar RMSE worsens by 10.2%, while mean yaw RMSE improves by 8.6%. Improvements
+are not uniform: standing and leftward slip increase. Its settled forward speed
+is 0.138 m/s for a 0.15 request. This is useful evidence for trying the penalty,
+not a claim of uniformly better locomotion or a multi-seed ablation.
+
+The reduced-hull trials have directional regressions: cap 16 turns right at
+−0.322 rad/s for −0.48 requested; cap 8 turns left at +0.091 for +0.48 requested.
+The selected policy's corresponding values are −0.404 and +0.429. These outcomes
+do not isolate hull geometry from divergence during training, but they rule out
+promoting these particular exports. Keep `outputs/op3-policy/` as the selected
+demo. The slip trial remains runnable with
+`uv run op3-play outputs/slip-hull-full`; fresh runs default to slip weight −5,
+while the original recipe explicitly uses zero to reproduce the old baseline.
+
+## D020 Hold-to-ramp keyboard commands and validation
+
+**2026-11-07.** Track GLFW press/release state and ignore OS repeat events. At each
+20 ms control tick, approach the held direction's trained bound over 0.5 s, or
+return from the bound to zero over 0.35 s when released. Opposite held keys cancel
+that axis. Space, R, and focus loss clear commands and held keys immediately;
+release/repress resumes input after a clear. W/S, A/D, Q/E and Escape retain their
+directional/exit meanings. The title and overlay show the changing command.
+
+`scripts/check_slip_controls.py` passed all six ramp/release directions, repeat
+independence, opposing keys, reset, and focus loss. It also checks contact slip
+against an independent native Jacobian calculation with translation and rotation,
+zero airborne penalty, and invariance of masses/inertias, joint/actuator settings,
+foot boxes and floor under hull caps 16 and 8.
+Legacy mappings without a hull-cap field still load; a different inference hull
+cap is rejected.
+
+GPU model/reset/step/wrapper checks passed for original and 8-vertex hulls:
+`outputs/slip-checks.json` and `outputs/slip-hull-8-parity.json`. In the one-second
+small-action native/MJX comparison, maximum qpos discrepancy was 5.60e−6 and qvel
+discrepancy 6.42e−5. These are limited parity checks, not a claim that long contact
+trajectories coincide. All four actual PPO jobs completed with finite metrics,
+zero reported buffer overflow and reloadable policy exports.
+An additional same-state translating/rotating-foot check compared recomputed GPU
+contact sensors against native MuJoCo. The largest slip-term discrepancy was
+4.7e−7 (m/s)² (`outputs/slip-sensor-parity.json`).
+
+Actual X11 press/release events sent only to a newly launched viewer verified all
+six directions reaching the trained bound and returning to zero after release.
+Intermediate title snapshots on subsequent keys show gradual ramps (the first
+W snapshot preceded its first displayed update). R and Escape also worked, with
+clean exit. Evidence is in
+`outputs/held-viewer.json` and `outputs/held-viewer-check.log`. The checks used the
+existing selected policy, so it benefits from the new controls without retraining.
+
+Rendered the original-hull slip trial's forward, backward and left-turn cases
+(3 s each), plus a 15 s standing/forward/turn/lateral/stop sequence. All survived.
+Sampled frames were inspected alongside the trajectories: the robot remains
+upright, changes heading and retains its short, rapid, low-clearance steps.
+Videos, frame sheets and the report are in `outputs/slip-trial-video/`. Rendering
+24 simulated seconds took 317.5 s with this display setup; it was performed after
+the PPO timing trials and is not included in their timing comparison.
