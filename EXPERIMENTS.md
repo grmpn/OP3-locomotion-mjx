@@ -18,7 +18,7 @@ recorded event timestamp are marked as backfilled rather than assigned one.
 | `smoke` | 2026-11-06, before 23:54 | Initial newest-package dependency set | Failed before PPO updates: removed JAX replication API |
 | `smoke-compatible` | 2026-11-06 23:54:54 | Seed 0; 32 envs; batch 16 × 2; 640 control steps | PPO update, export/reload, rendering, and viewer checks passed; not a walking policy |
 | `baseline` | 2026-11-06 23:58:58 | Seed 0; 512 envs; batch 128 × 4; uniform combined commands plus 20% standing; 30M requested steps | Intentionally stopped; last saved checkpoint 16,056,320; selected evaluated checkpoint 15,052,800 for refinement |
-| `balanced` | 2026-11-07 00:17:06 | Weights/normalization from baseline 15,052,800; seed 0; same PPO/physics/rewards; balanced command modes; 15M requested additional steps | Running; first 1,003,520 additional steps evaluated |
+| `balanced` | 2026-11-07 00:17:06 | Weights/normalization from baseline 15,052,800; seed 0; same PPO/physics/rewards; balanced command modes; 15M requested additional steps | Running; evaluated through 5,017,600 additional steps |
 
 Run settings are in `outputs/<run>/config.json`, provenance in `run.json`, and
 training/evaluation aggregates in `metrics.jsonl`. The baseline start revision is
@@ -222,3 +222,21 @@ for future runs; evaluation's `eval/episode_reward` remains valid. The focused
 GPU wrapper check passed, including actual reward-sum aggregation, fall/timeouts,
 and native/MJX parity (`outputs/checks-final-wrapper.json`). The running balanced
 process was already loaded before this logging-only correction.
+
+## D011 Five million refinement steps
+
+**2026-11-07 00:23 UTC.** Evaluate refinement checkpoint `000005017600` on the
+unchanged suite (`outputs/balanced-eval-5m/report.json`). All cases survived.
+Forward/backward means were +0.146/−0.131 m/s for ±0.15; lateral means were
++0.067/−0.088 m/s for ±0.09. The left in-place turn now has repeated touchdowns
+and a settled rate of +0.165 rad/s (up from +0.0044 before refinement), but still
+undershoots +0.48 substantially. Right turn settles near −0.340 for −0.48.
+The continuous change sequence has planar RMSE 0.0228 m/s and yaw RMSE
+0.1183 rad/s, including transitions.
+
+**Decision:** continue the planned refinement without changing rewards or
+physics. Left-turn behavior is improving on the fixed test, so do not add gait
+shaping or declare the run stuck. The comparison is still a single training
+lineage with additional optimization, not an isolated command-sampler ablation.
+Final acceptance remains unproven until sustained turning and longer rollouts
+are checked.
