@@ -118,9 +118,11 @@ seconds per segment, deterministic actions and seed 123. `--seconds` and
 RMSE (including transients), settled segment velocities, displacement, foot-height
 variation, minimum base height and contact counts. Gait diagnostics include each
 foot's swing fraction, touchdowns, maximum sole clearance, and mean foot-body
-speed while supported. Support requires >1 N of floor normal force; clearance
+speed while supported, plus force-weighted tangential contact-point slip speed. Support requires >1 N of floor normal force; clearance
 uses the original foot boxes. Supported foot-body speed is a slip proxy and also
-includes rolling, so it is not an exact slip measurement. These diagnostics
+includes rolling, so it is not an exact slip measurement. Contact-point slip is
+computed from the contact Jacobian and generalized velocity and excludes the
+normal component. These diagnostics
 exclude the first second (or half of a shorter rollout). Compressed traces contain
 commands, velocities, joint state, actions, foot positions, clearances, and
 normal forces. Settled tracking RMSE is reported for each command segment. Videos and traces

@@ -39,6 +39,7 @@ def foot_diagnostics(model, data, foot_bodies):
     floor = model.geom("floor").id
     clearance = []
     normal_force = np.zeros(2)
+    weighted_slip = np.zeros(2)
     geom_to_foot = {}
     for foot, body in enumerate(foot_bodies):
         geoms = np.flatnonzero(
@@ -53,6 +54,7 @@ def foot_diagnostics(model, data, foot_bodies):
         )
         geom_to_foot.update({int(g): foot for g in geoms})
     force = np.zeros(6)
+    jacobian = np.zeros((3, model.nv))
     for index, contact in enumerate(data.contact):
         other = (
             contact.geom2
@@ -61,8 +63,16 @@ def foot_diagnostics(model, data, foot_bodies):
         )
         if other in geom_to_foot and contact.efc_address >= 0:
             mujoco.mj_contactForce(model, data, index, force)
-            normal_force[geom_to_foot[other]] += max(float(force[0]), 0.0)
-    return np.asarray(clearance), normal_force
+            foot = geom_to_foot[other]
+            load = max(float(force[0]), 0.0)
+            normal_force[foot] += load
+            mujoco.mj_jac(model, data, jacobian, None, contact.pos, foot_bodies[foot])
+            contact_velocity = jacobian @ data.qvel
+            normal = contact.frame[:3]
+            tangent = contact_velocity - normal * np.dot(normal, contact_velocity)
+            weighted_slip[foot] += load * np.linalg.norm(tangent)
+    slip = np.divide(weighted_slip, normal_force, out=np.zeros(2), where=normal_force > 0)
+    return np.asarray(clearance), normal_force, slip
 
 
 def gait_summary(trace, dt):
@@ -84,6 +94,12 @@ def gait_summary(trace, dt):
         "touchdowns": ((~support[:-1]) & support[1:]).sum(axis=0).tolist(),
         "maximum_sole_clearance": clearance.max(axis=0).tolist(),
         "mean_supported_foot_speed": stance_speed,
+        "mean_contact_slip_speed": [
+            float(trace["contact_slip"][start:, foot][support[:, foot]].mean())
+            if support[:, foot].any()
+            else None
+            for foot in range(2)
+        ],
     }
 
 
@@ -146,6 +162,7 @@ def main():
                     "feet_xy",
                     "clearance",
                     "normal_force",
+                    "contact_slip",
                     "support",
                     "contacts",
                 )
@@ -168,9 +185,10 @@ def main():
                     trace["action"].append(np.asarray(simulation.previous_action))
                     trace["feet_z"].append(data.xpos[env.foot_bodies, 2].copy())
                     trace["feet_xy"].append(data.xpos[env.foot_bodies, :2].copy())
-                    clearance, force = foot_diagnostics(env.model, data, env.foot_bodies)
+                    clearance, force, slip = foot_diagnostics(env.model, data, env.foot_bodies)
                     trace["clearance"].append(clearance)
                     trace["normal_force"].append(force)
+                    trace["contact_slip"].append(slip)
                     trace["support"].append(force > 1.0)
                     trace["contacts"].append(data.ncon)
                     if renderer and index % 2 == 0:
