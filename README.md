@@ -124,6 +124,10 @@ uv run op3-train --config outputs/slip-hull-full/config.json \
   --initialize-from outputs/slip-hull-full --output outputs/air-time-trial \
   --foot-air-time-weight 2 --num-timesteps 1000000 --num-evals 3
 # Use --foot-air-time-weight 0 with another output directory for a matched control.
+
+# Full 30M-transition run from scratch: upright +1, posture -0.05, air time +2.
+uv run op3-train --config configs/upright_air_time.json \
+  --output outputs/upright-air-time-full
 ```
 
 The output directory must be new. Each run prints the selected GPU and records

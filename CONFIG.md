@@ -352,3 +352,28 @@ above, with equal left/right selection. Both features remain disabled by default
 Standalone evaluations use 10 s per segment and all eight standard cases from
 standing; separate left/right raised-start checks measure recovery. The selected
 demo remains `outputs/op3-policy`.
+
+## Full upright / air-time run (2026-11-07)
+
+Reproducible settings: `configs/upright_air_time.json`. Run directory:
+`outputs/upright-air-time-full`. Initialize actor, critic, optimizer and
+observation normalization from scratch, seed 0; no source checkpoint.
+
+| Setting | Run value |
+| --- | --- |
+| `upright` | +1.0 (code default +0.3) |
+| `posture` / `standing_posture` | −0.05 / 0; original posture penalty in every command mode |
+| `foot_air_time` / `foot_slip` | +2 / −5 |
+| `lift_reset_probability` | 0; fixed nominal standing start |
+| `command_sampling` | `balanced` |
+| `num_timesteps` | 30,000,000 requested control transitions |
+| `num_envs` / `num_eval_envs` | 512 / 32 |
+| `num_evals` | 16, including the initial untrained policy |
+| `batch_size` / `num_minibatches` / `unroll_length` | 128 / 4 / 20 |
+| `collision_maxhullvert` | −1; original collision hulls |
+
+Other reward weights/widths, PPO hyperparameters, 128×128×128 networks,
+normalization, observations and 2 ms / 20 ms timing match the reference above.
+Air time retains the touchdown duration reward with no cadence or clearance
+target. Default code settings and the separately selected demo are unchanged.
+Results belong in D024 of `EXPERIMENTS.md`.

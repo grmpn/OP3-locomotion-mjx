@@ -1,0 +1,66 @@
+{
+  "env": {
+    "physics_backend": "warp",
+    "collision_profile": "locomotion",
+    "collision_maxhullvert": -1,
+    "physics_dt": 0.002,
+    "control_dt": 0.02,
+    "episode_seconds": 10.0,
+    "command_seconds": 3.0,
+    "command_max": [
+      0.25,
+      0.15,
+      0.8
+    ],
+    "standing_probability": 0.2,
+    "command_sampling": "balanced",
+    "lift_reset_probability": 0.0,
+    "lift_reset_knee_flexion": 0.45,
+    "lift_reset_hip_roll": 0.15,
+    "action_scale": 0.5,
+    "min_height": 0.18,
+    "min_up_cosine": 0.5,
+    "reward": {
+      "linear_tracking": 3.0,
+      "yaw_tracking": 1.0,
+      "upright": 1.0,
+      "vertical_velocity": -0.5,
+      "roll_pitch_velocity": -0.05,
+      "effort": -0.002,
+      "action_rate": -0.02,
+      "joint_limits": -1.0,
+      "posture": -0.05,
+      "standing_posture": 0.0,
+      "foot_slip": -5.0,
+      "slip_contact_force": 1.0,
+      "foot_air_time": 2.0,
+      "air_time_contact_force": 1.0,
+      "air_time_command_threshold": 0.05,
+      "termination": -2.0,
+      "sigma_linear": 0.15,
+      "sigma_yaw": 0.4
+    }
+  },
+  "ppo": {
+    "seed": 0,
+    "num_timesteps": 30000000,
+    "num_envs": 512,
+    "batch_size": 128,
+    "num_minibatches": 4,
+    "unroll_length": 20,
+    "num_updates_per_batch": 4,
+    "learning_rate": 0.0003,
+    "entropy_cost": 0.01,
+    "discounting": 0.99,
+    "gae_lambda": 0.95,
+    "clipping_epsilon": 0.2,
+    "max_grad_norm": 1.0,
+    "num_evals": 16,
+    "num_eval_envs": 32,
+    "hidden_sizes": [
+      128,
+      128,
+      128
+    ]
+  }
+}

@@ -767,3 +767,20 @@ Inspected images: `outputs/standing-lift-rollout-frames.jpg` and
 `outputs/standing-lift-reset-poses.jpg`. The selected demo remains
 `outputs/op3-policy`; both new options remain disabled by default. Inspect the
 raised-start export with `uv run op3-play outputs/lift-reset-25 --reset-pose left`.
+
+## D024 Full training with stronger upright reward and air time
+
+**2026-11-07.** Start a fresh 30M-transition run rather than another continuation
+of the earlier policy. Increase upright weight from +0.3 to +1.0, retain the
+original −0.05 posture weight with no extra standing penalty, and enable the
+new +2 air-time reward from the start. Retain slip −5, original collision hulls,
+and fixed nominal standing resets. No cadence, foot-height target or reset mix
+is introduced. This tests the combined recipe; it is not an isolated ablation
+of upright weight.
+
+The complete typed configuration is `configs/upright_air_time.json`. Use seed 0,
+balanced commands, 512 training/32 evaluation environments, 16 evaluations,
+128 × 4 minibatches, unroll length 20 and the existing PPO/network settings.
+Actor, critic and observation normalization start fresh; no checkpoint is loaded.
+Run directory: `outputs/upright-air-time-full`. Check fixed-command behavior and
+foot clearance as well as training return before selecting an export.
