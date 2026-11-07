@@ -161,6 +161,12 @@ zero slip weight; use `--foot-slip-weight -5` to enable it when refining one.
 Likewise, configs predating air time load with zero air-time weight; enable it
 explicitly with `--foot-air-time-weight 2`. New runs default to both terms enabled.
 
+The experimental `outputs/air-time-2` export completed a 1M-transition trial and
+survived the full command suite. It did not improve swing duration or overall
+tracking against a matched zero-weight control; see D021 in `EXPERIMENTS.md`.
+Run it with `uv run op3-play outputs/air-time-2`. The selected demo remains
+`outputs/op3-policy`.
+
 ## Evaluate and inspect behavior
 
 ```sh

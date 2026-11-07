@@ -298,3 +298,15 @@ Each uses the code-default 1 N slip support threshold. Other reward, environment
 network and normalization settings match the selected policy. Standalone native
 evaluations use seed 123, 10 s per command segment, and the standard eight cases.
 Results and selection decisions belong in `EXPERIMENTS.md`.
+
+## Air-time trials (2026-11-07)
+
+`outputs/air-time-2` and `outputs/air-time-control-0` both initialize actor, critic
+and normalization from `outputs/slip-hull-full` checkpoint `000001003520`, with
+optimizer/RNG/step count restarted. Both use original hulls (−1), slip weight −5,
+balanced commands, seed 0, and the same 512-environment PPO settings as the slip
+trials: 1,000,000 requested transitions and three evaluations. Air-time weights
+are +2 and 0 respectively; support threshold is 1 N and command threshold 0.05.
+All other settings match the slip source. Standalone evaluation uses native
+MuJoCo, seed 123, 10 s per segment and all eight command cases. These experimental
+exports are separate from the selected demo; results belong in `EXPERIMENTS.md`.

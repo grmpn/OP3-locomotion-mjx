@@ -565,3 +565,93 @@ upright, changes heading and retains its short, rapid, low-clearance steps.
 Videos, frame sheets and the report are in `outputs/slip-trial-video/`. Rendering
 24 simulated seconds took 317.5 s with this display setup; it was performed after
 the PPO timing trials and is not included in their timing comparison.
+
+## D021 Air time without a prescribed rhythm
+
+**2026-11-07.** Following the Wolfgang reward comparison, add a small touchdown
+reward without its phase reward or swing-duration offset/cap. At each 2 ms physics
+step, sum normal floor force per foot; >1 N means support. Once a foot has seen
+support during a motion command, accumulate unsupported seconds and pay that
+duration once on its next supported sample. Sum events across the control
+interval, multiply by weight +2 and the common 0.02 s reward scaling. A 0.1 s
+completed swing pays 0.004. There is no minimum or target duration, cadence, phase,
+height target, alternation bonus, or reward per step count. Equal total completed
+unsupported time gives equal raw reward, although PPO discounting still favors
+earlier payment.
+
+Motion means any command exceeds 5% of its trained bound, including pure yaw.
+Standing clears timers and eligibility; resets do too. The initial landing cannot
+earn a bonus, and physical failure suppresses it. An unfinished swing earns no
+terminal bonus. This rewards unloading, which need not imply useful foot lift;
+measure clearance, simultaneous loss of support, slip and tracking as well.
+
+Matched trials start from the same `outputs/slip-hull-full` checkpoint
+`000001003520`, with original hulls and slip weight −5. `outputs/air-time-2` uses
+air-time weight +2; `outputs/air-time-control-0` uses zero. Each requests 1M
+transitions, seed 0, 512 environments and three PPO evaluations, retaining the
+source's balanced commands and other hyperparameters. Actor, critic and
+normalization are restored; optimizer/RNG/step count restart. Implementation is
+commit `622ada9`. Configuration details are in `CONFIG.md`; the selected demo
+remains separate from these experimental exports.
+
+Both runs completed 1,003,520 transitions on the RTX 3070 Laptop GPU. Training
+plus its evaluations took 123.4 s for +2 and approximately 123 s for zero. Final
+PPO evaluation episodes all reached 500 steps; logged metrics were finite, with
+zero buffer overflow. The +2 run's mean air-time contribution was 0.2481 per
+episode, versus 29.0957 linear-tracking and 9.1952 yaw-tracking reward. These
+sampled training evaluations are separate from the fixed-command comparison.
+
+Focused JIT checks cover initial landing exclusion, one-time touchdown payment,
+independent feet, sub-control-step events, standing transitions, equal total air
+time across different step counts, diagnostic partial-swing exclusion, legacy
+config loading, and air time with slip disabled. GPU reset/step checks verify
+history clearing on truncation/failure and no positive reward on failure. The
+one-second native/MJX small-action comparison gave maximum qpos discrepancy
+5.48e−6 and qvel discrepancy 9.93e−5 (`outputs/air-time-checks.json`). Ruff and
+format checks passed. Reward history is absent from observations, so the saved
+policy input/action mapping and inference timing remain unchanged.
+
+### Matched command-suite results
+
+Both exports survived all eight native cases: seven independent 10 s commands
+and a 50 s standing/forward/turn/lateral/stop sequence. Tracking/slip entries below
+average cases equally, including standing and changes. Air-time/clearance entries
+average the two feet across the six independent nonzero-command cases, after
+discarding the first second. Durations use complete swings at 50 Hz, not the
+reward's 500 Hz sampling; clearance is the average of each foot/case maximum.
+
+| Metric | Source slip policy | Extra 1M, air weight 0 | Extra 1M, air weight +2 |
+| --- | ---: | ---: | ---: |
+| Planar velocity RMSE, m/s | 0.02027 | 0.01722 | 0.01807 |
+| Yaw-rate RMSE, rad/s | 0.11109 | 0.09177 | 0.09825 |
+| Supported contact slip speed, m/s | 0.004697 | 0.004105 | 0.004385 |
+| Mean completed unsupported duration, ms | 79.7 | 85.3 | 81.1 |
+| Unsupported fraction per foot | 41.0% | 44.6% | 40.5% |
+| Mean peak sole clearance, mm | 5.89 | 5.81 | 5.18 |
+| Both feet unsupported | 0.259% | 0.037% | 0.111% |
+
+The +2 trial does not establish a useful air-time improvement at this weight and
+training budget. Relative to the matched control, planar RMSE is 4.9% higher,
+yaw RMSE 7.1% higher and slip 6.8% higher; mean completed air time is 4.9% shorter.
+Forward settled speed is 0.1465 m/s for a 0.15 request, versus 0.1502 for control.
+Left-turn tracking improves (0.4763 versus 0.4363 rad/s for +0.48), but right-turn
+tracking worsens (−0.3578 versus −0.4606 for −0.48). The +2 standing case still
+has small foot motions despite receiving no air-time reward at zero command.
+
+Inspected saved trajectories and representative forward/backward/left-turn
+frames, selected at maximum left-foot clearance. The robot remains upright with
+low foot lift; these samples do not show a transition to long steps. All measured
+completed swings in these suites are at most 0.18 s for +2 and 0.20 s for control.
+The +2 case's brief simultaneous loss of support occurs during backward motion
+(0.67% of settled samples), rather than persistent flight. This is a single-seed
+comparison; stochastic training/numerical divergence prevents attributing every
+directional change to the reward.
+
+Reports and trajectories are in `outputs/air-time-2-eval/` and
+`outputs/air-time-control-0-eval/`; the combined table is
+`outputs/air-time-comparison.json` and inspected frames are
+`outputs/air-time-rollout-frames.jpg`. Keep `outputs/op3-policy` as the selected
+demo. The requested air-time term is available with +2 as the new-run default;
+existing saved configs retain their original weights. Try this experimental
+export with `uv run op3-play outputs/air-time-2`. No rhythm or clearance target
+was added to obtain these results.
