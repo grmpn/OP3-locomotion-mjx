@@ -15,7 +15,7 @@ from mujoco import mjx
 from op3_locomotion.config import LEG_JOINTS, REVISION, EnvConfig
 from op3_locomotion.observations import base_motion, observe
 from op3_locomotion.policy import position_targets
-from op3_locomotion.rewards import reward_terms, weighted_terms
+from op3_locomotion.rewards import foot_slip, reward_terms, weighted_terms
 
 
 def default_assets() -> Path:
@@ -32,7 +32,36 @@ def load_model(assets: Path, config: EnvConfig):
     for relative, expected in provenance["sha256"].items():
         if hashlib.sha256((assets / relative).read_bytes()).hexdigest() != expected:
             raise ValueError(f"Modified asset: {relative}. Re-run scripts/fetch_assets.py")
-    model = mujoco.MjModel.from_xml_path(str(assets / "scene.xml"))
+    spec = mujoco.MjSpec.from_file(str(assets / "scene.xml"))
+    if config.collision_maxhullvert != -1:
+        # Only collision assets; visual meshes and the original foot boxes stay intact.
+        collision_meshes = {
+            geom.meshname
+            for geom in spec.geoms
+            if geom.type == mujoco.mjtGeom.mjGEOM_MESH and (geom.contype or geom.conaffinity)
+        }
+        for mesh in spec.meshes:
+            if mesh.name in collision_meshes:
+                mesh.maxhullvert = config.collision_maxhullvert
+    if config.reward.foot_slip:
+        for side in ("l", "r"):
+            body = spec.body(f"{side}_ank_roll_link")
+            boxes = [geom for geom in body.geoms if geom.type == mujoco.mjtGeom.mjGEOM_BOX]
+            if len(boxes) != 2:
+                raise ValueError("Expected two original foot boxes per foot")
+            for index, geom in enumerate(boxes):
+                geom.name = f"{side}_sole_{index}"
+                spec.add_sensor(
+                    name=f"{side}_slip_{index}",
+                    type=mujoco.mjtSensor.mjSENS_CONTACT,
+                    objtype=mujoco.mjtObj.mjOBJ_GEOM,
+                    objname="floor",
+                    reftype=mujoco.mjtObj.mjOBJ_GEOM,
+                    refname=geom.name,
+                    # force + linvel, maxforce reduction, four box-plane contacts.
+                    intprm=[(1 << 1) | (1 << 7), 2, 4],
+                )
+    model = spec.compile()
     if config.collision_profile == "locomotion":
         # Authorized simplification: retain inertias/visuals, disable only head/arm contact.
         upper_bodies = {
@@ -106,6 +135,18 @@ class OP3Env(Env):
             d.qpos[m.joint(name).qposadr[0]] = angle
         mujoco.mj_forward(m, d)
         self.foot_bodies = [m.body(f"{side}_ank_roll_link").id for side in ("l", "r")]
+        self.slip_sensor_indices = None
+        if config.reward.foot_slip:
+            self.slip_sensor_indices = jp.array(
+                [
+                    [
+                        int(m.sensor(f"{side}_slip_{index}").adr[0]) + offset
+                        for index in range(2)
+                        for offset in range(24)
+                    ]
+                    for side in ("l", "r")
+                ]
+            )
         feet = [
             i
             for i in range(m.ngeom)
@@ -278,6 +319,14 @@ class OP3Env(Env):
             self.upper[self.actuator_indices],
             terminated,
             self.config.reward,
+            slip=(
+                foot_slip(
+                    data.sensordata[self.slip_sensor_indices].reshape(2, 8, 6),
+                    self.config.reward.slip_contact_force,
+                )
+                if self.slip_sensor_indices is not None
+                else 0.0
+            ),
         )
         weighted = weighted_terms(terms, self.config.reward)
         # No positive reward on a fall/invalid transition. Metrics reflect the paid terms.
@@ -346,6 +395,7 @@ class OP3Env(Env):
             "observation_size": self.observation_size,
             "model_revision": REVISION,
             "collision_profile": self.config.collision_profile,
+            "collision_maxhullvert": self.config.collision_maxhullvert,
             "physics_backend": self.config.physics_backend,
         }
 

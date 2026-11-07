@@ -100,6 +100,7 @@ def load_export(path: Path):
 
 def validate_mapping(expected: dict, actual: dict):
     # Roundtrip to normalize tuples/arrays; exact pinned model and timing are required.
+    expected = {"collision_maxhullvert": -1, **expected}
     if json.loads(json.dumps(actual)) != expected:
         raise ValueError("Policy model/action/observation mapping differs from this environment")
 
@@ -108,13 +109,17 @@ def validate_warm_start(path: Path, config: Config, mapping: dict):
     path = resolve_export(path)
     previous = Config.load(path / "run_config.json")
     previous_env, next_env = asdict(previous.env), asdict(config.env)
-    # Command distribution can change without changing physics, observation units,
-    # action meaning, or trained command bounds. Everything else remains strict.
-    previous_env.pop("command_sampling")
-    next_env.pop("command_sampling")
+    # Explicit experiment settings may change the objective and hull approximation.
+    # Observation/action meaning, bounds, timing and other physics remain strict.
+    for name in ("command_sampling", "reward", "collision_maxhullvert"):
+        previous_env.pop(name)
+        next_env.pop(name)
     if previous_env != next_env or previous.ppo.hidden_sizes != config.ppo.hidden_sizes:
         raise ValueError(
-            "Warm start requires identical environment/network settings except command_sampling"
+            "Warm start requires identical environment/network settings except "
+            "command_sampling, reward and collision_maxhullvert"
         )
-    validate_mapping(json.loads((path / "mapping.json").read_text()), mapping)
+    previous_mapping = json.loads((path / "mapping.json").read_text())
+    previous_mapping["collision_maxhullvert"] = mapping["collision_maxhullvert"]
+    validate_mapping(previous_mapping, mapping)
     return checkpoint.load(str(path))

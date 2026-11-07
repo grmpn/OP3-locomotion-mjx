@@ -87,8 +87,12 @@ body masses/inertias, joint dynamics, actuator gains/force limits, friction, and
 solver settings remain upstream defaults. This simplifies contact, so the robot
 cannot support itself on its head or hands; falls terminate before such contact
 is useful. Set `collision_profile` to `full` in a config to restore all colliders.
-No mesh decimation is currently applied. Training and inference use this same
-loader, and exports include the collision profile.
+Collision hull reduction is optional: `--collision-maxhullvert 16` (or `8`)
+uses MuJoCo's [maximum hull vertex setting](https://mujoco.readthedocs.io/en/latest/XMLreference.html#asset-mesh-maxhullvert)
+on collision meshes in memory. It approximates their contact surfaces, while
+preserving visual meshes, inertias, foot boxes and terrain. `-1` retains upstream
+hulls and remains the default. Training and inference share the loader; exports
+record the cap and reject a different cap at inference. Downloaded files stay intact.
 
 ## Train and save a policy
 
@@ -100,12 +104,18 @@ uv run op3-train --output outputs/smoke --num-timesteps 640 \
 
 # Initial policy (GPU required; development run used 512 environments):
 uv run op3-train --output outputs/baseline --num-timesteps 15000000 \
-  --num-envs 512 --num-evals 16
+  --num-envs 512 --num-evals 16 --foot-slip-weight 0
 
 # Warm-start refinement with direct coverage of each keyboard command mode:
 uv run op3-train --config outputs/baseline/config.json --output outputs/balanced \
   --initialize-from outputs/baseline/checkpoints/000015052800 \
   --command-sampling balanced --num-timesteps 15000000 --num-evals 16
+
+# Slip-penalty trial from the selected policy, with reduced collision hulls:
+uv run op3-train --config outputs/op3-policy/run_config.json \
+  --initialize-from outputs/op3-policy --output outputs/slip-trial \
+  --foot-slip-weight -5 --collision-maxhullvert 16 \
+  --num-timesteps 1000000 --num-evals 3
 ```
 
 The output directory must be new. Each run prints the selected GPU and records
@@ -137,8 +147,11 @@ nominal pose, bounds, and control timing. **These are policy exports, not full
 training-state checkpoints**: optimizer state and rollout/RNG state are not
 saved. `--initialize-from outputs/baseline` starts a new run from saved weights
 and normalization, resetting the optimizer, RNG and step count. It requires the
-same environment/network configuration except `command_sampling`; this is
-explicitly not exact resume.
+same environment/network configuration except `command_sampling`, reward settings,
+and `collision_maxhullvert`. These exceptions support explicit refinement trials;
+physics timing, action/observation mappings and command bounds must still match.
+This is explicitly not exact resume. Old exports without slip settings load with
+zero slip weight; use `--foot-slip-weight -5` to enable it when refining one.
 
 ## Evaluate and inspect behavior
 
@@ -190,17 +203,23 @@ uv run op3-play outputs/op3-policy
 ```
 
 The display requires GLFW/OpenGL. The renderer has its own key callback so it
-does not inherit conflicting MuJoCo viewer shortcuts. Keys increment a persistent
-command (holding a key repeats); releasing keys keeps the command:
+does not inherit conflicting MuJoCo viewer shortcuts. Hold a direction to ramp
+the requested velocity toward its trained bound; release it to decay to zero:
 
 | Keys | Command change |
 | --- | --- |
-| W / S | forward / backward, 0.05 m/s increments |
-| A / D | left / right, 0.05 m/s increments |
-| Q / E | left / right yaw, 0.2 rad/s increments |
+| W / S | ramp forward / backward velocity |
+| A / D | ramp left / right velocity |
+| Q / E | ramp left / right yaw rate |
 | Space | zero all commands |
 | R | fixed standing reset and zero command |
 | Escape | exit |
+
+Ramping from zero to a bound takes 0.5 s; release from a bound takes 0.35 s to
+return to zero, measured in simulated control time. Opposite keys held together
+decay that axis to zero. Rates are independent of OS key repeat and render rate.
+Space, reset, and window focus loss clear held keys and immediately zero the
+command; release and press again to resume movement after clearing.
 
 The title and on-screen overlay display `[vx, vy, yaw_rate]`. Commands clamp to
 the export's trained range. The camera follows the torso; a fall freezes physics
@@ -280,13 +299,21 @@ Brax reward scaling is 1. Negative penalties are never clipped to zero.
 | action change | summed squared action differences | -0.02 |
 | joint-limit violation | summed angle outside target bounds, rad | -1 |
 | nominal posture | summed leg-angle error squares, rad² | -0.05 |
+| foot slip | sum of per-foot load-weighted squared contact tangent speeds, (m/s)² | -5 (new-run default); 0 in selected policy |
 | termination | physical failure indicator | -2 |
 
 On a physical failure the entire step reward is replaced by `-2 * control_dt`;
 no positive tracking reward is paid. Standing still under a 0.15 m/s forward
 command earns only `exp(-1)` of the planar tracking term. Evaluation compares
-this baseline explicitly. No foot-slip, clearance, or air-time shaping is enabled
-until rollout evidence justifies it.
+this baseline explicitly. The slip penalty uses four fixed slots for each
+original foot-box/floor pair, through MuJoCo contact sensors (force and relative
+velocity in the contact frame). Each foot's squared tangential speed is averaged
+with normal-force weights, then summed over feet carrying more than 1 N. It is
+active at zero command too; airborne/unloaded feet receive no slip penalty.
+These sensors are reward-only and do not change the 64 policy observations.
+Sensors are omitted when the weight is zero. No clearance or air-time reward is
+enabled. The selected `outputs/op3-policy` predates this penalty; trial evidence
+is recorded separately in `EXPERIMENTS.md`.
 
 ## Focused checks
 
@@ -294,6 +321,7 @@ until rollout evidence justifies it.
 uv run ruff check src scripts
 uv run python scripts/check_env.py
 uv run python scripts/check_env.py --gpu --output outputs/checks.json
+uv run python scripts/check_slip_controls.py
 ```
 
 The GPU check covers fixed physical resets under different command seeds,

@@ -75,6 +75,7 @@ Explicit trainer settings and effective defaults from locked Brax 0.14.2/Optax:
 | --- | --- | --- |
 | `physics_backend` | `warp` (direct MuJoCo MJX) | — |
 | `collision_profile` | `locomotion`: head/arm contacts disabled; torso/leg/foot contacts retained | — |
+| `collision_maxhullvert` | −1 (upstream collision hulls) | — |
 | `physics_dt` | 0.002 s (500 Hz) | — |
 | `control_dt` | 0.02 s (50 Hz) | — |
 | `action_repeat` (derived) | 10 physics steps per control step | — |
@@ -157,18 +158,39 @@ refer to the 12 controlled leg joints; effort uses all 20 actuator torques `τ`.
 | `joint_limits` | `sum(max(lower - q, 0) + max(q - upper, 0))` in rad | −1.0 |
 | `posture` | `sum((q - q₀)²)` in rad² | −0.05 |
 | `termination` | Physical failure indicator | −2.0 |
+| `foot_slip` | Sum over supported feet of `sum(F_n × (v_t1² + v_t2²)) / sum(F_n)`, (m/s)² | 0 in selected policy; **−5.0 code default** |
 
 | Tracking width | Value |
 | --- | --- |
 | `sigma_linear` | 0.15 m/s |
 | `sigma_yaw` | 0.4 rad/s |
+| `slip_contact_force` | 1.0 N; require summed foot normal force strictly above this |
 
 Per-step reward is `control_dt × sum(weight × term)`, with `control_dt=0.02`;
 Brax adds no further scaling (`reward_scaling=1.0`). On physical failure, replace
 the entire reward with `−2 × 0.02 = −0.04`; all other paid terms are zero.
 Time-limit truncation alone does not receive this failure penalty. Reward terms
-are logged separately after weighting and timestep scaling. No foot-slip,
-clearance, air-time or body-height reward is enabled.
+are logged separately after weighting and timestep scaling, including
+`reward/foot_slip`. The selected policy has zero slip weight; new runs default
+to −5. Old configuration files lacking this field explicitly load as zero.
+No clearance, air-time or body-height reward is enabled.
+
+Slip uses MuJoCo contact sensors matching each original foot box against `floor`:
+four slots per box, two boxes per foot, force and relative linear velocity in
+contact coordinates (normal x, tangential yz), `maxforce` reduction. Each sensor
+has 24 values, 96 total, used only for reward and never appended to observations.
+The force-weighted squared speed is summed over loaded feet at the last physics
+substep, then weighted and timestep-scaled once. Missing contacts are zero;
+airborne/unloaded feet are excluded. Zero velocity commands do not disable this
+penalty. A zero weight omits the sensors and their runtime cost.
+
+`collision_maxhullvert` accepts −1 or integers ≥4. A positive value caps the
+convex hull of each collision mesh using MuJoCo's compiler, including inactive
+head/arm colliders. Visual meshes, explicit inertias, original foot boxes and
+floor remain unchanged. It changes the mesh contact approximation and is saved
+in the policy mapping. Current trial caps are 16 and 8; the default and selected
+policy remain −1. Warm starts may explicitly change rewards, command sampling
+or this cap; evaluation/play require the saved cap.
 
 ## Observations
 
@@ -211,3 +233,23 @@ observation, terrain input, or added observation noise.
 | Command magnitude | 60% of trained bounds: `[0.15, 0.09, 0.48]` |
 | Cases | Stand, forward, backward, left, right, left/right yaw, continuous changes |
 | Settled-metric exclusion | First 1 s of each segment, or half if shorter |
+
+## Keyboard command settings
+
+The viewer tracks GLFW press/release state, ignoring key-repeat events. Each
+50 Hz control tick approaches the signed bound on a held axis, or zero on a
+released axis. W/S control x, A/D y, Q/E yaw; opposing held keys cancel.
+
+| Setting | Value |
+| --- | --- |
+| Zero-to-bound ramp time | 0.5 s of control time |
+| Bound-to-zero release time | 0.35 s of control time |
+| Ramp rates at current bounds | `[0.5, 0.3, 1.6]` m/s², m/s², rad/s² |
+| Release rates at current bounds | `[0.714286, 0.428571, 2.285714]` m/s², m/s², rad/s² |
+| Limits | Saved policy `command_max`; no overshoot |
+| Immediate clear | Space, R (also resets physics), window focus loss |
+| Clear behavior | Clears held-key state; release/repress to resume |
+| Exit | Escape |
+
+These viewer ramps do not alter training's sampled command schedule. Existing
+catch-up cap is 0.25 s; command ramps follow simulated time if rendering is slow.

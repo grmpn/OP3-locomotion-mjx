@@ -23,6 +23,8 @@ def main():
     parser.add_argument("--output", type=Path)
     parser.add_argument("--assets", type=Path)
     parser.add_argument("--command-sampling", choices=("uniform", "balanced"))
+    parser.add_argument("--foot-slip-weight", type=float)
+    parser.add_argument("--collision-maxhullvert", type=int)
     parser.add_argument(
         "--initialize-from",
         type=Path,
@@ -49,6 +51,17 @@ def main():
     config = replace(config, ppo=replace(config.ppo, **updates))
     if args.command_sampling:
         config = replace(config, env=replace(config.env, command_sampling=args.command_sampling))
+    if args.foot_slip_weight is not None:
+        config = replace(
+            config,
+            env=replace(
+                config.env, reward=replace(config.env.reward, foot_slip=args.foot_slip_weight)
+            ),
+        )
+    if args.collision_maxhullvert is not None:
+        config = replace(
+            config, env=replace(config.env, collision_maxhullvert=args.collision_maxhullvert)
+        )
     try:
         devices = jax.devices("gpu")
     except RuntimeError as error:

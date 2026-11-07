@@ -7,8 +7,31 @@ import jax.numpy as jp
 from op3_locomotion.observations import base_motion
 
 
+def foot_slip(contacts, minimum_force):
+    """Sum per-foot force-weighted squared contact-point tangential speed.
+
+    contacts has shape (2 feet, 8 slots, 6): force xyz then velocity xyz,
+    both in the contact frame (x normal, yz tangential). Empty slots are zero.
+    """
+    load = jp.maximum(contacts[..., 0], 0.0)
+    total = jp.sum(load, axis=-1)
+    speed_squared = jp.sum(jp.square(contacts[..., 4:6]), axis=-1)
+    per_foot = jp.sum(load * speed_squared, axis=-1) / jp.maximum(total, 1e-6)
+    return jp.sum(jp.where(total > minimum_force, per_foot, 0.0))
+
+
 def reward_terms(
-    data, command, action, previous_action, nominal, qpos_indices, lower, upper, terminated, config
+    data,
+    command,
+    action,
+    previous_action,
+    nominal,
+    qpos_indices,
+    lower,
+    upper,
+    terminated,
+    config,
+    slip=0.0,
 ):
     gravity, linear, angular = base_motion(data.qpos, data.qvel)
     positions = data.qpos[qpos_indices]
@@ -26,6 +49,7 @@ def reward_terms(
             jp.maximum(lower - positions, 0.0) + jp.maximum(positions - upper, 0.0)
         ),
         "posture": jp.sum(jp.square(positions - nominal[qpos_indices])),
+        "foot_slip": jp.asarray(slip),
         "termination": terminated.astype(jp.float32),
     }
 

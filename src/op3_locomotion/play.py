@@ -15,32 +15,59 @@ from op3_locomotion.policy import PolicySimulation
 
 
 class KeyboardCommand:
-    """Incremental commands; custom GLFW callbacks avoid MuJoCo viewer shortcuts."""
+    """Hold to ramp, release to stop; independent of keyboard repeat and rendering."""
 
-    def __init__(self, bounds):
-        self.bounds = np.asarray(bounds)
+    bindings = {
+        glfw.KEY_W: (0, 1),
+        glfw.KEY_S: (0, -1),
+        glfw.KEY_A: (1, 1),
+        glfw.KEY_D: (1, -1),
+        glfw.KEY_Q: (2, 1),
+        glfw.KEY_E: (2, -1),
+    }
+
+    def __init__(self, bounds, ramp_seconds=0.5, return_seconds=0.35):
+        self.bounds = np.asarray(bounds, dtype=float)
+        self.ramp_rate = self.bounds / ramp_seconds
+        self.return_rate = self.bounds / return_seconds
         self.value = np.zeros(3)
+        self.held = set()
         self.reset_requested = False
 
+    def clear(self):
+        self.held.clear()
+        self.value[:] = 0
+
+    def advance(self, dt):
+        direction = np.zeros(3)
+        for key in self.held:
+            axis, sign = self.bindings[key]
+            direction[axis] += sign
+        target = direction * self.bounds
+        rate = np.where(direction == 0, self.return_rate, self.ramp_rate)
+        self.value[:] = np.clip(
+            self.value + np.clip(target - self.value, -rate * dt, rate * dt),
+            -self.bounds,
+            self.bounds,
+        )
+        return self.value
+
+    def on_focus(self, window, focused):
+        if not focused:
+            self.clear()
+
     def on_key(self, window, key, scancode, action, modifiers):
-        if action not in (glfw.PRESS, glfw.REPEAT):
+        if action == glfw.RELEASE:
+            self.held.discard(key)
             return
-        bindings = {
-            glfw.KEY_W: (0, 0.05),
-            glfw.KEY_S: (0, -0.05),
-            glfw.KEY_A: (1, 0.05),
-            glfw.KEY_D: (1, -0.05),
-            glfw.KEY_Q: (2, 0.2),
-            glfw.KEY_E: (2, -0.2),
-        }
-        if key in bindings:
-            axis, amount = bindings[key]
-            self.value[axis] += amount
-            self.value[:] = np.clip(self.value, -self.bounds, self.bounds)
+        if action != glfw.PRESS:
+            return
+        if key in self.bindings:
+            self.held.add(key)
         elif key == glfw.KEY_SPACE:
-            self.value[:] = 0
+            self.clear()
         elif key == glfw.KEY_R:
-            self.value[:] = 0
+            self.clear()
             self.reset_requested = True
         elif key == glfw.KEY_ESCAPE:
             glfw.set_window_should_close(window, True)
@@ -70,6 +97,7 @@ def main():
     glfw.swap_interval(0)
     controls = KeyboardCommand(config.env.command_max)
     glfw.set_key_callback(window, controls.on_key)
+    glfw.set_window_focus_callback(window, controls.on_focus)
     scene = mujoco.MjvScene(env.model, maxgeom=2000)
     # Shadow maps and floor reflections are costly on software OpenGL displays.
     scene.flags[mujoco.mjtRndFlag.mjRND_SHADOW] = False
@@ -81,7 +109,9 @@ def main():
     started = previous_tick = time.monotonic()
     accumulator = env.dt
     print(
-        "W/S forward/back | A/D lateral | Q/E yaw | Space stop | R reset | Escape exit", flush=True
+        "Hold W/S forward/back | A/D lateral | Q/E yaw; release to stop | "
+        "Space stop | R reset | Escape exit",
+        flush=True,
     )
     try:
         while not glfw.window_should_close(window):
@@ -98,7 +128,7 @@ def main():
                 controls.reset_requested = False
                 accumulator = env.dt
             while accumulator >= env.dt and not simulation.done:
-                simulation.step(controls.value)
+                simulation.step(controls.advance(env.dt))
                 accumulator -= env.dt
             if simulation.done:
                 accumulator = 0.0
@@ -109,7 +139,7 @@ def main():
             status = (
                 "Fallen: press R to reset"
                 if simulation.done
-                else "W/S  A/D  Q/E | Space stop | R reset | Esc exit"
+                else "Hold W/S A/D Q/E; release to stop | Space stop | R reset | Esc exit"
             )
             glfw.set_window_title(window, f"OP3 | {command_text}")
             camera.lookat[:] = simulation.data.qpos[:3] + np.array([0, 0, 0.08])

@@ -23,6 +23,8 @@ class RewardConfig:
     action_rate: float = -0.02
     joint_limits: float = -1.0
     posture: float = -0.05
+    foot_slip: float = -5.0
+    slip_contact_force: float = 1.0  # N, minimum summed floor load per foot
     termination: float = -2.0
     sigma_linear: float = 0.15  # m/s
     sigma_yaw: float = 0.4  # rad/s
@@ -32,6 +34,7 @@ class RewardConfig:
 class EnvConfig:
     physics_backend: str = "warp"
     collision_profile: str = "locomotion"
+    collision_maxhullvert: int = -1  # -1 retains upstream hulls; otherwise >=4
     physics_dt: float = 0.002
     control_dt: float = 0.02
     episode_seconds: float = 10.0
@@ -51,6 +54,10 @@ class EnvConfig:
             raise ValueError("physics_backend must be jax or warp")
         if self.collision_profile not in ("full", "locomotion"):
             raise ValueError("collision_profile must be full or locomotion")
+        if self.collision_maxhullvert != -1 and self.collision_maxhullvert < 4:
+            raise ValueError("collision_maxhullvert must be -1 or at least 4")
+        if self.reward.foot_slip > 0 or self.reward.slip_contact_force <= 0:
+            raise ValueError("foot_slip must be nonpositive and slip_contact_force positive")
         if self.physics_dt <= 0 or self.control_dt < self.physics_dt:
             raise ValueError("Require 0 < physics_dt <= control_dt")
         if abs(self.action_repeat * self.physics_dt - self.control_dt) > 1e-8:
@@ -123,6 +130,8 @@ class Config:
     def load(cls, path: Path) -> "Config":
         value = json.loads(path.read_text())
         env = value["env"]
+        # Older exports predate this reward; preserve their original objective.
+        env["reward"].setdefault("foot_slip", 0.0)
         env["reward"] = RewardConfig(**env["reward"])
         env["command_max"] = tuple(env["command_max"])
         ppo = value["ppo"]
