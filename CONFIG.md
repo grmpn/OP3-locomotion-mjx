@@ -367,6 +367,7 @@ observation normalization from scratch, seed 0; no source checkpoint.
 | `lift_reset_probability` | 0; fixed nominal standing start |
 | `command_sampling` | `balanced` |
 | `num_timesteps` | 30,000,000 requested control transitions |
+| Completed export | 30,105,600 transitions; `checkpoints/000030105600` |
 | `num_envs` / `num_eval_envs` | 512 / 32 |
 | `num_evals` | 16, including the initial untrained policy |
 | `batch_size` / `num_minibatches` / `unroll_length` | 128 / 4 / 20 |

@@ -208,6 +208,13 @@ increased slip; raised resets increased air time but did not increase foot
 clearance. Both features remain opt-in, and the selected demo is unchanged.
 See D022–D023 in `EXPERIMENTS.md` for the full comparison and recovery checks.
 
+The full upright/air-time recipe completed 30,105,600 transitions from scratch
+in `outputs/upright-air-time-full`. Its final export survives the native and MJX command
+suite and moves in several directions, but right turning fails and backward
+motion includes hopping. It is experimental; the selected demo is unchanged.
+Inspect it with `uv run op3-play outputs/upright-air-time-full`; see D024 in
+`EXPERIMENTS.md` for checkpoint comparisons and gait limitations.
+
 ## Evaluate and inspect behavior
 
 ```sh

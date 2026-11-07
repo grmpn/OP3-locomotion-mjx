@@ -784,3 +784,80 @@ balanced commands, 512 training/32 evaluation environments, 16 evaluations,
 Actor, critic and observation normalization start fresh; no checkpoint is loaded.
 Run directory: `outputs/upright-air-time-full`. Check fixed-command behavior and
 foot clearance as well as training return before selecting an export.
+
+The run started at 21:52:48 UTC on the RTX 3070 Laptop GPU using commit
+`ed11acc`; `run.json` records no initialization checkpoint. The 2,007,040 and
+4,014,080 exports survived short standing/forward/left-yaw/right-yaw checks but
+barely moved. At 10,035,200 transitions, all eight standard 10 s/segment cases
+survived, yet settled forward speed was only 0.00169 m/s for 0.15 requested and
+left/right yaw was 0.0407 / 0.00066 rad/s for ±0.48 requested. This was still
+largely a standing solution despite a sampled training return near 40.
+Evidence: `outputs/upright-full-{2m,4m,10m}-eval/`. At 16,056,320 transitions,
+forward speed reached 0.1108 m/s, but the command-change case fell after 32.04 s
+and several other directions barely moved. At 20,070,400, all cases survived:
+forward reached 0.1178 m/s and left yaw 0.3320 rad/s; backward, rightward and
+right-yaw responses remained weak. Those reports use the `16m` / `20m` suffixes.
+
+### Completed full run
+
+Completed **30,105,600 transitions** in 1,946.8 s (32.4 min trainer wall time,
+including its evaluations). Final export:
+`outputs/upright-air-time-full/checkpoints/000030105600`. Config roundtrip and
+comparison against the committed recipe passed. All logged metrics were finite
+with zero reported physics-buffer overflow. Final sampled PPO evaluation length
+was 495.8/500 steps, with 2/32 episodes reporting physical termination; success
+must be judged separately from these aggregate training metrics.
+
+The 28,098,560 and final exports both survived the full native suite: seven
+independent 10 s commands and a 50 s command-change sequence. Tracking and slip
+means below weight the eight cases equally. Body tilt is the angle of body up
+from world up, averaged by case after its first second. Foot statistics cover
+six independent moving cases after the first second; peak clearance is the mean
+of each foot/case maximum. Durations omit incomplete swings and use the 50 Hz
+trajectory, rather than the reward's 500 Hz contacts.
+
+| Metric | Existing selected demo | 28M fresh run | Final 30M fresh run |
+| --- | ---: | ---: | ---: |
+| Planar velocity RMSE, m/s | 0.01993 | 0.04050 | 0.03216 |
+| Yaw-rate RMSE, rad/s | 0.12283 | 0.23000 | 0.26930 |
+| Mean body tilt, degrees | 5.36 | 6.79 | 6.77 |
+| Standing leg-joint RMS error, degrees | 10.88 | 9.48 | 11.26 |
+| Supported contact slip, m/s | 0.005541 | 0.009004 | 0.006235 |
+| Mean peak sole clearance, mm | 6.52 | 8.49 | 6.84 |
+| Mean completed air time, ms | 77.5 | 147.0 | 94.1 |
+| Foot/case pairs with completed swings, of 12 | 12 | 12 | 9 |
+| Both feet unsupported | 0.259% | 5.259% | 5.556% |
+
+The final policy's settled forward/backward speeds are +0.1272/−0.1344 m/s for
+±0.15 requests, with unwanted yaw of −0.1393/+0.1911 rad/s. Left/right lateral
+speeds are +0.0756/−0.0637 for ±0.09 requests. Left yaw reaches +0.4390 for +0.48,
+but right yaw is only −0.00346 for −0.48. The earlier 28M checkpoint turns right
+at −0.2848, while its lateral tracking is worse; final reward or final step count
+alone cannot identify the best behavior in each direction.
+
+Longer air time is not evidence of a clean walking gait. During backward motion,
+both feet are unsupported for 19.3% of settled samples, with both soles more than
+0.5 mm clear for 17.3%: this includes actual flight. During rightward motion the
+left foot is unsupported for 99.8% of the settled samples, and during right yaw
+neither foot completes a swing. Those three missing foot/case duration statistics
+are excluded from the 94.1 ms mean. Inspected rendered frames and trajectories
+confirm low-clearance stepping mixed with hopping/one-foot behavior. Images are
+in `outputs/upright-full-rollout-frames.jpg`.
+
+The same final eight-case suite also survived in MJX. Its mean planar/yaw RMSE
+was 0.03521 m/s / 0.25255 rad/s; settled right yaw was −0.00371 rad/s, confirming
+the failed turn in training physics too. Backward motion had both feet unsupported
+in 20.9% of settled samples. Native and MJX trajectories are not identical
+(left yaw was +0.4390 versus +0.5022), but they show the same major limitations.
+Final reports and trajectories are `outputs/upright-full-30m-eval/` and
+`outputs/upright-full-30m-mjx/`; the earlier export uses `upright-full-28m-eval/`.
+Combined metrics and per-case tilt measurements are saved in
+`outputs/upright-full-comparison.json`.
+
+This combined recipe did not improve overall command tracking or mean uprightness
+over the selected demo. It combines fresh initialization, balanced commands and
+the current foot rewards with stronger upright weight, so this single-seed run
+does not isolate which choice caused the poorer result. Keep `outputs/op3-policy`
+as the selected demo and the new run as an experimental export. Reproduce with
+`uv run op3-train --config configs/upright_air_time.json --output OUTPUT`, or inspect
+with `uv run op3-play outputs/upright-air-time-full`.
