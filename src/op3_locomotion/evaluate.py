@@ -30,6 +30,63 @@ def command_suite(bounds):
     }
 
 
+def foot_diagnostics(model, data, foot_bodies):
+    """Native geometry diagnostics, also used after copying an MJX rollout state.
+
+    Clearance is the lowest point of the original foot boxes above the plane.
+    Support means >1 N summed normal force from the floor, not merely proximity.
+    """
+    floor = model.geom("floor").id
+    clearance = []
+    normal_force = np.zeros(2)
+    geom_to_foot = {}
+    for foot, body in enumerate(foot_bodies):
+        geoms = np.flatnonzero(
+            (model.geom_bodyid == body) & (model.geom_type == mujoco.mjtGeom.mjGEOM_BOX)
+        )
+        clearance.append(
+            min(
+                data.geom_xpos[g, 2]
+                - np.abs(data.geom_xmat[g].reshape(3, 3)[2]) @ model.geom_size[g]
+                for g in geoms
+            )
+        )
+        geom_to_foot.update({int(g): foot for g in geoms})
+    force = np.zeros(6)
+    for index, contact in enumerate(data.contact):
+        other = (
+            contact.geom2
+            if contact.geom1 == floor
+            else (contact.geom1 if contact.geom2 == floor else -1)
+        )
+        if other in geom_to_foot and contact.efc_address >= 0:
+            mujoco.mj_contactForce(model, data, index, force)
+            normal_force[geom_to_foot[other]] += max(float(force[0]), 0.0)
+    return np.asarray(clearance), normal_force
+
+
+def gait_summary(trace, dt):
+    """Diagnostic evidence, not an automatic walking certificate."""
+    # Exclude the fixed reset's initial landing and first second of settling.
+    start = min(round(1 / dt), max(len(trace["support"]) // 2, 0))
+    support = trace["support"][start:]
+    clearance = trace["clearance"][start:]
+    foot_xy = trace["feet_xy"][start:]
+    speed = np.linalg.norm(np.diff(foot_xy, axis=0), axis=-1) / dt
+    planted = support[:-1] & support[1:]
+    # Foot-body speed while supported is a slip proxy; rolling can also move its origin.
+    stance_speed = [
+        float(speed[:, foot][planted[:, foot]].mean()) if planted[:, foot].any() else None
+        for foot in range(2)
+    ]
+    return {
+        "swing_fraction": (~support).mean(axis=0).tolist(),
+        "touchdowns": ((~support[:-1]) & support[1:]).sum(axis=0).tolist(),
+        "maximum_sole_clearance": clearance.max(axis=0).tolist(),
+        "mean_supported_foot_speed": stance_speed,
+    }
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("checkpoint", type=Path)
@@ -79,7 +136,19 @@ def main():
             simulation.reset()
             trace = {
                 key: []
-                for key in ("command", "velocity", "qpos", "qvel", "action", "feet_z", "contacts")
+                for key in (
+                    "command",
+                    "velocity",
+                    "qpos",
+                    "qvel",
+                    "action",
+                    "feet_z",
+                    "feet_xy",
+                    "clearance",
+                    "normal_force",
+                    "support",
+                    "contacts",
+                )
             }
             writer = None
             if renderer:
@@ -98,6 +167,11 @@ def main():
                     trace["qvel"].append(data.qvel.copy())
                     trace["action"].append(np.asarray(simulation.previous_action))
                     trace["feet_z"].append(data.xpos[env.foot_bodies, 2].copy())
+                    trace["feet_xy"].append(data.xpos[env.foot_bodies, :2].copy())
+                    clearance, force = foot_diagnostics(env.model, data, env.foot_bodies)
+                    trace["clearance"].append(clearance)
+                    trace["normal_force"].append(force)
+                    trace["support"].append(force > 1.0)
                     trace["contacts"].append(data.ncon)
                     if renderer and index % 2 == 0:
                         camera.lookat[:] = data.qpos[:3] + np.array([0, 0, 0.08])
@@ -123,6 +197,18 @@ def main():
                             "seconds": len(values) * env.dt,
                             "mean_velocity": values.mean(axis=0).tolist(),
                             "settled_velocity": settled.mean(axis=0).tolist(),
+                            "settled_linear_rmse": float(
+                                np.sqrt(
+                                    np.mean(
+                                        np.sum(
+                                            (settled[:, :2] - np.asarray(command)[:2]) ** 2, axis=1
+                                        )
+                                    )
+                                )
+                            ),
+                            "settled_yaw_rmse": float(
+                                np.sqrt(np.mean((settled[:, 2] - command[2]) ** 2))
+                            ),
                         }
                     )
             results[case] = {
@@ -135,6 +221,7 @@ def main():
                 "displacement_xy": (trace["qpos"][-1, :2] - np.asarray(env.nominal[:2])).tolist(),
                 "foot_height_range": np.ptp(trace["feet_z"], axis=0).tolist(),
                 "maximum_contacts": int(trace["contacts"].max()),
+                "gait": gait_summary(trace, env.dt),
                 "segments": segments,
             }
             print(case, json.dumps(results[case]), flush=True)
