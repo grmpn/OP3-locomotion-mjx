@@ -381,8 +381,9 @@ original foot-box/floor pair, through MuJoCo contact sensors (force and relative
 velocity in the contact frame). Each foot's squared tangential speed is averaged
 with normal-force weights, then summed over feet carrying more than 1 N. It is
 active at zero command too; airborne/unloaded feet receive no slip penalty.
-These sensors are reward-only and do not change the 64 policy observations.
-Sensors are omitted when both foot-reward weights are zero. Air time uses the
+These sensors do not change the 64 actor observations; the optional asymmetric
+critic also uses their derived support information. Sensors are omitted when
+both foot-reward weights are zero and the asymmetric critic is off. Air time uses the
 same force readings, sampled at the 2 ms physics timestep: a foot is supported
 above 1 N, otherwise it is unsupported. After observing support during a motion
 command, accumulate that foot's unsupported duration and pay it once on landing.
@@ -405,6 +406,32 @@ These diagnostics use the 50 Hz saved trajectory; training detects contacts at
 500 Hz, so short contact events can differ. Partial swings at the diagnostic
 window edges are excluded from the duration statistics.
 
+## Asymmetric critic experiment
+
+The optional critic receives the original 64 observations plus left/right sole
+height, unsupported time and contact state. The actor retains its 64 inputs and
+128×128×128 network. Contact timers for the critic run at every physics substep,
+including standing, independently of the air-time reward. See `CONFIG.md` for
+units, scales and warm-start normalization.
+
+Start from the original baseline's earlier 7,024,640-transition checkpoint, using
+the latest experiment's unchanged rewards (upright +1, slip −5, air time +2):
+
+```sh
+uv run op3-train --config configs/asymmetric_critic.json \
+  --initialize-from outputs/baseline/checkpoints/000007024640 \
+  --output outputs/asymmetric-critic
+uv run op3-play outputs/asymmetric-critic
+```
+
+This requests 30M additional transitions. The source export must exist locally.
+`--asymmetric-critic` also enables this option with another configuration. The
+actor weights/statistics are copied exactly; six zero rows extend the critic's
+input kernel, preserving its initial predictions. Optimizer/RNG/step count
+restart. Native play requires no privileged foot signals. After training, report
+the trainer's final average total episode reward against previous runs and use
+the launch command above for manual behavior evaluation.
+
 ## Focused checks
 
 ```sh
@@ -414,6 +441,7 @@ uv run python scripts/check_env.py --gpu --output outputs/checks.json
 uv run python scripts/check_slip_controls.py
 uv run python scripts/check_air_time.py
 uv run python scripts/check_standing_resets.py --gpu
+uv run python scripts/check_asymmetric_critic.py --gpu
 # Check a reduced hull profile with the same native/MJX action sequence:
 uv run python scripts/check_env.py --gpu --collision-maxhullvert 8
 ```

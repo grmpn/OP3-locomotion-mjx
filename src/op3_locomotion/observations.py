@@ -32,3 +32,26 @@ def observe(qpos, qvel, nominal, qpos_indices, qvel_indices, command, previous_a
             previous_action,
         )
     )
+
+
+def foot_heights(data, foot_geom_indices, foot_geom_sizes, floor_height):
+    """Lowest original sole-box point above the flat floor, left then right, m."""
+    bottom = data.geom_xpos[foot_geom_indices, 2] - jp.sum(
+        jp.abs(data.geom_xmat[foot_geom_indices, 2, :]) * foot_geom_sizes, axis=-1
+    )
+    return jp.min(bottom, axis=-1) - floor_height
+
+
+def contact_air_time(previous, supported, dt):
+    """Seconds without support, independent of command and reward eligibility."""
+    return jp.where(supported, 0.0, previous + dt)
+
+
+def critic_observation(actor_obs, height, air_time, contact):
+    """64 actor values + left/right height (m), air time (s), and support (0/1)."""
+    return {
+        "state": actor_obs,
+        "privileged_state": jp.concatenate(
+            (actor_obs, height * 10.0, air_time * 5.0, contact.astype(jp.float32))
+        ),
+    }

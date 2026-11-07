@@ -13,7 +13,13 @@ from brax.envs.wrappers.training import EpisodeWrapper, VmapWrapper
 from mujoco import mjx
 
 from op3_locomotion.config import LEG_JOINTS, REVISION, EnvConfig
-from op3_locomotion.observations import base_motion, observe
+from op3_locomotion.observations import (
+    base_motion,
+    contact_air_time,
+    critic_observation,
+    foot_heights,
+    observe,
+)
 from op3_locomotion.policy import position_targets
 from op3_locomotion.rewards import foot_slip, reward_terms, update_air_time, weighted_terms
 
@@ -43,7 +49,7 @@ def load_model(assets: Path, config: EnvConfig):
         for mesh in spec.meshes:
             if mesh.name in collision_meshes:
                 mesh.maxhullvert = config.collision_maxhullvert
-    if config.reward.foot_slip or config.reward.foot_air_time:
+    if config.reward.foot_slip or config.reward.foot_air_time or config.asymmetric_critic:
         for side in ("l", "r"):
             body = spec.body(f"{side}_ank_roll_link")
             boxes = [geom for geom in body.geoms if geom.type == mujoco.mjtGeom.mjGEOM_BOX]
@@ -136,7 +142,7 @@ class OP3Env(Env):
         mujoco.mj_forward(m, d)
         self.foot_bodies = [m.body(f"{side}_ank_roll_link").id for side in ("l", "r")]
         self.slip_sensor_indices = None
-        if config.reward.foot_slip or config.reward.foot_air_time:
+        if config.reward.foot_slip or config.reward.foot_air_time or config.asymmetric_critic:
             self.slip_sensor_indices = jp.array(
                 [
                     [
@@ -152,6 +158,11 @@ class OP3Env(Env):
             for i in range(m.ngeom)
             if m.geom_bodyid[i] in self.foot_bodies and m.geom_type[i] == mujoco.mjtGeom.mjGEOM_BOX
         ]
+        self.foot_geom_indices = jp.array(
+            [[i for i in feet if m.geom_bodyid[i] == body] for body in self.foot_bodies]
+        )
+        self.foot_geom_sizes = jp.array(m.geom_size)[self.foot_geom_indices]
+        self.floor_height = float(d.geom_xpos[m.geom("floor").id, 2])
         floor_height = min(
             d.geom_xpos[i, 2] - np.abs(d.geom_xmat[i].reshape(3, 3)[2]) @ m.geom_size[i]
             for i in feet
@@ -213,7 +224,10 @@ class OP3Env(Env):
 
     @property
     def observation_size(self):
-        return 12 + 2 * len(self.joint_names) + self.action_size
+        size = 12 + 2 * len(self.joint_names) + self.action_size
+        return (
+            {"state": size, "privileged_state": size + 6} if self.config.asymmetric_critic else size
+        )
 
     @property
     def action_size(self):
@@ -243,8 +257,8 @@ class OP3Env(Env):
             command,
         )
 
-    def observation(self, data, command, previous_action):
-        return observe(
+    def observation(self, data, command, previous_action, critic_air_time=None):
+        actor_obs = observe(
             data.qpos,
             data.qvel,
             self.nominal,
@@ -253,6 +267,21 @@ class OP3Env(Env):
             command,
             previous_action,
         )
+        if not self.config.asymmetric_critic:
+            return actor_obs
+        if critic_air_time is None:
+            raise ValueError("Asymmetric observations require explicit contact-time history")
+        return critic_observation(
+            actor_obs,
+            foot_heights(data, self.foot_geom_indices, self.foot_geom_sizes, self.floor_height),
+            critic_air_time,
+            self.foot_contact(data),
+        )
+
+    def foot_contact(self, data):
+        contacts = data.sensordata[self.slip_sensor_indices].reshape(2, 8, 6)
+        load = jp.sum(jp.maximum(contacts[..., 0], 0.0), axis=-1)
+        return load > self.config.reward.air_time_contact_force
 
     def targets(self, action):
         return position_targets(
@@ -272,7 +301,10 @@ class OP3Env(Env):
         )
         info = {**state.info, "command": command, "command_age": jp.array(0, dtype=jp.int32)}
         return state.replace(
-            info=info, obs=self.observation(state.pipeline_state, command, info["previous_action"])
+            info=info,
+            obs=self.observation(
+                state.pipeline_state, command, info["previous_action"], info["critic_air_time"]
+            ),
         )
 
     def sample_reset_index(self, rng):
@@ -327,11 +359,12 @@ class OP3Env(Env):
             "previous_action": action,
             "feet_air_time": jp.zeros(2),
             "feet_air_armed": jp.zeros(2, dtype=jp.bool_),
+            "critic_air_time": jp.zeros(2),
             "time_out": jp.array(0.0),
         }
         return State(
             data,
-            self.observation(data, command, action),
+            self.observation(data, command, action, info["critic_air_time"]),
             jp.array(0.0),
             jp.array(0.0),
             metrics,
@@ -345,23 +378,30 @@ class OP3Env(Env):
         moving = moving > self.config.reward.air_time_command_threshold
 
         def substep(_, carry):
-            data, air_time, armed, bonus = carry
+            data, air_time, armed, bonus, critic_time = carry
             data = mjx.step(self.mjx_model, data)
+            if self.config.reward.foot_air_time or self.config.asymmetric_critic:
+                supported = self.foot_contact(data)
             if self.config.reward.foot_air_time:
-                contacts = data.sensordata[self.slip_sensor_indices].reshape(2, 8, 6)
-                load = jp.sum(jp.maximum(contacts[..., 0], 0.0), axis=-1)
-                supported = load > self.config.reward.air_time_contact_force
                 air_time, armed, touchdown_bonus = update_air_time(
                     air_time, armed, supported, moving, self.config.physics_dt
                 )
                 bonus += touchdown_bonus
-            return data, air_time, armed, bonus
+            if self.config.asymmetric_critic:
+                critic_time = contact_air_time(critic_time, supported, self.config.physics_dt)
+            return data, air_time, armed, bonus, critic_time
 
-        data, air_time, armed, air_time_bonus = jax.lax.fori_loop(
+        data, air_time, armed, air_time_bonus, critic_time = jax.lax.fori_loop(
             0,
             self.config.action_repeat,
             substep,
-            (data, state.info["feet_air_time"], state.info["feet_air_armed"], jp.array(0.0)),
+            (
+                data,
+                state.info["feet_air_time"],
+                state.info["feet_air_armed"],
+                jp.array(0.0),
+                state.info["critic_air_time"],
+            ),
         )
         gravity, linear, angular = base_motion(data.qpos, data.qvel)
         finite = jp.all(jp.isfinite(data.qpos)) & jp.all(jp.isfinite(data.qvel))
@@ -437,9 +477,10 @@ class OP3Env(Env):
             "previous_action": action,
             "feet_air_time": air_time,
             "feet_air_armed": armed,
+            "critic_air_time": critic_time,
             "time_out": jp.array(0.0),
         }
-        obs = jp.nan_to_num(self.observation(data, command, action))
+        obs = jax.tree.map(jp.nan_to_num, self.observation(data, command, action, critic_time))
         return state.replace(
             pipeline_state=data,
             obs=obs,
@@ -500,6 +541,7 @@ class AutoReset(Wrapper):
             "previous_action",
             "feet_air_time",
             "feet_air_armed",
+            "critic_air_time",
         ):
             info[name] = select(fresh.info[name], info[name])
         info["time_out"] = info["truncation"]
@@ -507,7 +549,7 @@ class AutoReset(Wrapper):
             pipeline_state=jax.vmap(lambda d, done, r: d.where(done, r))(
                 state.pipeline_state, state.done, fresh.pipeline_state
             ),
-            obs=select(fresh.obs, state.obs),
+            obs=jax.tree.map(select, fresh.obs, state.obs),
             info=info,
         )
 

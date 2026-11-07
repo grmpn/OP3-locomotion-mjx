@@ -8,6 +8,7 @@ from importlib.metadata import version
 from pathlib import Path
 
 import jax
+import jax.numpy as jp
 from brax.training.acme import running_statistics
 from brax.training.agents.ppo import checkpoint, networks
 
@@ -37,7 +38,7 @@ def save_export(
         mapping["observation_size"],
         len(mapping["controlled_joints"]),
         True,
-        network_factory(config.ppo),
+        network_factory(config.ppo, config.env.asymmetric_critic),
     )
     checkpoint.save(str(root), step, params, network_config)
     path = root / f"{step:012d}"
@@ -87,15 +88,20 @@ def load_export(path: Path):
     # Brax 0.14.2's generic load_policy cannot deserialize null optional kernel
     # initializers. Recreate our shared factory from the saved typed settings,
     # while using Brax's parameter/normalizer loader unchanged.
-    network = network_factory(config.ppo)(
+    network = network_factory(config.ppo, config.env.asymmetric_critic)(
         mapping["observation_size"],
         len(mapping["controlled_joints"]),
         preprocess_observations_fn=running_statistics.normalize,
     )
-    policy = jax.jit(
-        networks.make_inference_fn(network)(checkpoint.load(str(path)), deterministic=True)
-    )
-    return policy, config, mapping, path
+    inference = networks.make_inference_fn(network)(checkpoint.load(str(path)), deterministic=True)
+
+    def policy(obs, key):
+        # Play/native inference needs only the original actor observation, never feet.
+        if config.env.asymmetric_critic:
+            obs = {"state": obs["state"] if isinstance(obs, dict) else obs}
+        return inference(obs, key)
+
+    return jax.jit(policy), config, mapping, path
 
 
 def validate_mapping(expected: dict, actual: dict):
@@ -118,15 +124,47 @@ def validate_warm_start(path: Path, config: Config, mapping: dict):
         "lift_reset_probability",
         "lift_reset_knee_flexion",
         "lift_reset_hip_roll",
+        "asymmetric_critic",
     ):
         previous_env.pop(name)
         next_env.pop(name)
     if previous_env != next_env or previous.ppo.hidden_sizes != config.ppo.hidden_sizes:
         raise ValueError(
             "Warm start requires identical environment/network settings except "
-            "command_sampling, reward, collision_maxhullvert and raised-foot reset settings"
+            "command_sampling, reward, collision_maxhullvert, raised-foot resets and critic inputs"
         )
     previous_mapping = json.loads((path / "mapping.json").read_text())
     previous_mapping["collision_maxhullvert"] = mapping["collision_maxhullvert"]
+    promote_critic = config.env.asymmetric_critic and not previous.env.asymmetric_critic
+    if previous.env.asymmetric_critic and not config.env.asymmetric_critic:
+        raise ValueError("Warm-start removal of privileged critic inputs is unsupported")
+    if promote_critic:
+        size = previous_mapping["observation_size"]
+        previous_mapping["observation_size"] = {"state": size, "privileged_state": size + 6}
     validate_mapping(previous_mapping, mapping)
-    return checkpoint.load(str(path))
+    params = checkpoint.load(str(path))
+    return expand_critic(params) if promote_critic else params
+
+
+def expand_critic(params):
+    """Preserve actor/statistics and value output when adding six critic inputs.
+
+    Brax's Welford state shares a count across observation leaves. Give new
+    scaled features a zero-mean/unit-variance prior at that count, so the actor's
+    learned normalizer and its future update rate remain exactly intact.
+    """
+    normalizer, actor, critic = params
+    count = float(int(normalizer.count))
+    updated = {}
+    for name, initial in (("mean", 0.0), ("std", 1.0), ("summed_variance", count)):
+        values = getattr(normalizer, name)
+        updated[name] = {
+            "state": values,
+            "privileged_state": jp.concatenate((values, jp.full(6, initial, dtype=values.dtype))),
+        }
+    normalizer = normalizer.replace(**updated)
+    critic = jax.tree.map(jp.asarray, critic)
+    # Brax's pinned MLP names its first dense layer hidden_0.
+    kernel = critic["params"]["hidden_0"]["kernel"]
+    critic["params"]["hidden_0"]["kernel"] = jp.pad(kernel, ((0, 6), (0, 0)))
+    return normalizer, actor, critic

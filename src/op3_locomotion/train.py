@@ -22,6 +22,7 @@ def main():
     parser.add_argument("--config", type=Path)
     parser.add_argument("--output", type=Path)
     parser.add_argument("--assets", type=Path)
+    parser.add_argument("--asymmetric-critic", action=argparse.BooleanOptionalAction, default=None)
     parser.add_argument("--command-sampling", choices=("uniform", "balanced"))
     parser.add_argument("--foot-slip-weight", type=float)
     parser.add_argument("--foot-air-time-weight", type=float)
@@ -54,6 +55,8 @@ def main():
         if hasattr(args, name) and getattr(args, name) is not None
     }
     config = replace(config, ppo=replace(config.ppo, **updates))
+    if args.asymmetric_critic is not None:
+        config = replace(config, env=replace(config.env, asymmetric_critic=args.asymmetric_critic))
     if args.command_sampling:
         config = replace(config, env=replace(config.env, command_sampling=args.command_sampling))
     if args.foot_slip_weight is not None:
@@ -176,7 +179,7 @@ def main():
         normalize_observations=True,
         reward_scaling=1.0,
         deterministic_eval=True,
-        network_factory=network_factory(config.ppo),
+        network_factory=network_factory(config.ppo, config.env.asymmetric_critic),
         progress_fn=progress,
         policy_params_fn=save,
         restore_params=params,

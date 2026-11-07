@@ -46,7 +46,7 @@ Explicit trainer settings and effective defaults from locked Brax 0.14.2/Optax:
 | `clipping_epsilon_value` | `None` (value clipping off) |
 | `use_distributional_critic` | `False` |
 | `bootstrap_on_timeout` | `False` (Brax's optional timeout reward-bootstrap switch); truncation flags are still supplied to GAE |
-| `normalize_observations` | `True`; same saved statistics for actor, critic and inference |
+| `normalize_observations` | `True`; selected policy shares statistics; asymmetric critic has separate observation leaves |
 | `normalize_observations_mode` | `welford` |
 | `normalize_observations_std_eps` | 0.0; running standard deviation bounded to `[1e-6, 1e6]` |
 | `normalize_until_count` | `None` (statistics update throughout training) |
@@ -74,6 +74,7 @@ Explicit trainer settings and effective defaults from locked Brax 0.14.2/Optax:
 | Setting | Current value | Default if different |
 | --- | --- | --- |
 | `physics_backend` | `warp` (direct MuJoCo MJX) | — |
+| `asymmetric_critic` | `False`; optional 70-value critic described below | — |
 | `collision_profile` | `locomotion`: head/arm contacts disabled; torso/leg/foot contacts retained | — |
 | `collision_maxhullvert` | −1 (upstream collision hulls) | — |
 | `physics_dt` | 0.002 s (500 Hz) | — |
@@ -201,11 +202,13 @@ phase/cadence or body-height reward is enabled.
 Slip uses MuJoCo contact sensors matching each original foot box against `floor`:
 four slots per box, two boxes per foot, force and relative linear velocity in
 contact coordinates (normal x, tangential yz), `maxforce` reduction. Each sensor
-has 24 values, 96 total, used only for reward and never appended to observations.
+has 24 values, 96 total. Raw sensor values are never appended to observations;
+the optional critic uses the derived binary support state and air-time history.
 The force-weighted squared speed is summed over loaded feet at the last physics
 substep, then weighted and timestep-scaled once. Missing contacts are zero;
 airborne/unloaded feet are excluded. Zero velocity commands do not disable this
-penalty. Sensors are omitted only when both foot-reward weights are zero.
+penalty. Sensors are omitted only when both foot-reward weights are zero and
+the asymmetric critic is disabled.
 
 Air-time history is sampled at every 0.002 s physics substep using the same floor
 force sensors. Each foot must first be supported under a motion command to arm
@@ -235,7 +238,9 @@ or this cap; evaluation/play require the saved cap.
 
 ## Observations
 
-Actor and critic share **64 values**, in the following order. Slices use Python's
+The actor always uses **64 values**; the default and selected-policy critic share
+them. The optional asymmetric critic appends six values described below.
+Slices use Python's
 zero-based, end-exclusive convention. Scales are applied before running-statistic
 normalization; the saved normalizer is reused at inference.
 
@@ -261,8 +266,40 @@ r_hip_yaw, r_hip_roll, r_hip_pitch, r_knee, r_ank_pitch, r_ank_roll
 MuJoCo's free-joint quaternion is **wxyz**, rotating body vectors to world.
 World gravity and world-frame linear qvel are rotated by its inverse into the
 body frame. Free-joint angular qvel is already body-frame. There is no frame
-stacking, privileged critic observation, absolute position/heading, contact
-observation, terrain input, or added observation noise.
+stacking, absolute position/heading, terrain input, or added observation noise.
+The actor never receives privileged foot observations.
+
+### Optional asymmetric critic
+
+`env.asymmetric_critic=True` returns `state` (64 actor inputs) and
+`privileged_state` (70 critic inputs). Brax's standard `policy_obs_key` and
+`value_obs_key` select these branches. Both networks retain three 128-unit Swish
+layers; actor outputs, action transforms, control timing and all rewards are
+unchanged by this flag. The critic's first 64 values equal `state` exactly.
+
+| Critic slice | Values, left then right | Scale before normalization |
+| --- | --- | --- |
+| `[64:66]` | `foot_height`: lowest point of each foot's two original sole boxes above the flat floor, m; signed, including penetration | 10 |
+| `[66:68]` | `foot_air_time`: elapsed unsupported time since contact or reset, s | 5 |
+| `[68:70]` | `foot_contact`: summed sole-floor normal load strictly above `air_time_contact_force` (1 N), float 0/1 | 1 |
+
+Critic timers update every physics substep (2 ms), clear on support or episode
+reset, and accumulate regardless of command, reward eligibility or reward weight.
+They are separate from the command-gated reward timers. Height and contact use
+the final substep's kinematics/sensors. Command changes retain critic timers;
+auto-reset replaces both observation branches and all history together.
+Initial timers are zero, initial sole clearance is 0.5 mm, and initial contacts
+come from the reset state's sensors. Inference requires only the actor's 64 values.
+
+Warm-starting a symmetric export copies the actor exactly and pads the critic's
+first-layer kernel with six zero rows, preserving its initial value predictions.
+Copy the original normalization mean, standard deviation, summed variance and
+count into the actor branch and the first 64 critic entries. For the six added,
+scaled features, initialize mean 0, standard deviation 1 and summed variance
+equal to the restored sample count (a unit-variance prior). Brax's shared Welford
+count then updates both branches normally; the actor's update rate is preserved.
+Same-shape asymmetric exports reload unchanged; removing critic inputs during a
+warm start is rejected. Optimizer, RNG and training step count still restart.
 
 ## Standalone evaluation defaults
 
@@ -378,3 +415,19 @@ normalization, observations and 2 ms / 20 ms timing match the reference above.
 Air time retains the touchdown duration reward with no cadence or clearance
 target. Default code settings and the separately selected demo are unchanged.
 Results belong in D024 of `EXPERIMENTS.md`.
+
+## Asymmetric critic run (2026-11-07)
+
+Reproducible settings: `configs/asymmetric_critic.json`. Run directory:
+`outputs/asymmetric-critic`. Warm start from original baseline checkpoint
+`outputs/baseline/checkpoints/000007024640`. Preserve actor weights, actor
+normalization and the original critic function using the expansion above;
+optimizer/RNG/step count restart. The asymmetric flag defaults to false.
+
+Use the preceding full-run recipe unchanged except `asymmetric_critic=True`:
+upright +1, slip −5, air time +2, posture −0.05, no extra standing penalty,
+balanced commands, fixed standing resets, seed 0, 512 training/32 evaluation
+environments, 16 evaluations, 30,000,000 requested additional transitions.
+Both MLPs remain 128×128×128; actor input size 64, critic input size 70.
+Other PPO, physics, command, reward and normalization settings are identical to
+`configs/upright_air_time.json`. The selected demo remains `outputs/op3-policy`.

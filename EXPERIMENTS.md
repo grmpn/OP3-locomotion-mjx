@@ -861,3 +861,38 @@ does not isolate which choice caused the poorer result. Keep `outputs/op3-policy
 as the selected demo and the new run as an experimental export. Reproduce with
 `uv run op3-train --config configs/upright_air_time.json --output OUTPUT`, or inspect
 with `uv run op3-play outputs/upright-air-time-full`.
+
+## D025 Asymmetric critic from an earlier original checkpoint
+
+**2026-11-07.** The user requested a critic with two values each for foot height,
+time since contact and binary contact state, retaining the actor and the latest
+experiment's rewards (upright +1, slip −5, air time +2). Initialize from the
+original baseline's 7,024,640-transition export, before its selected 15M export
+and balanced refinement. This changes initialization as well as critic inputs
+relative to D024; it is not an isolated critic ablation.
+
+Use `configs/asymmetric_critic.json`, matching D024's 30M-transition budget,
+seed 0, balanced command distribution, 512 environments, 32 evaluation
+environments and 16 evaluations. Default floor, original hulls, fixed standing
+resets, actor architecture, action mapping, PPO and reward settings are unchanged.
+The original actor parameters and running statistics carry over exactly. The
+critic's first layer gains six zero rows; its initial function is preserved.
+New scaled critic features start with zero-mean/unit-variance normalization
+priors at the original shared sample count. Optimizer, RNG and step count restart.
+
+The critic's unsupported-time history is independent of command and reward
+eligibility, so it remains informative during standing. Both observation
+branches and the new timer reset together on termination/truncation. Play loads
+only the actor inputs and never needs privileged foot signals.
+
+Run: `outputs/asymmetric-critic`. Per the user's updated instructions in
+`AGENTS.md`, report final trainer mean total episode reward alongside previous
+runs and provide the play command; leave behavior evaluation to the user.
+
+Validation before the run: Ruff lint/format checks passed. The focused CPU and
+GPU checks passed actor parameter/statistic preservation, critic-only input
+isolation, initial value-function preservation (float32 matrix products), export
+reload, native actor-only inference, sole-height geometry, command-independent
+timers, same-action reward parity and batched timeout/reset parity. Logs:
+`outputs/asymmetric-checks-{cpu,gpu}.log`. GPU reward comparisons allow float32
+roundoff; no reward formulas or weights were changed by the critic feature.

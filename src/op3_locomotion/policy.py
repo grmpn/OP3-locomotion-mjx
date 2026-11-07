@@ -6,11 +6,13 @@ import jax.numpy as jp
 from brax.training.agents.ppo import networks
 
 
-def network_factory(config):
+def network_factory(config, asymmetric_critic=False):
     return partial(
         networks.make_ppo_networks,
         policy_hidden_layer_sizes=config.hidden_sizes,
         value_hidden_layer_sizes=config.hidden_sizes,
+        policy_obs_key="state",
+        value_obs_key="privileged_state" if asymmetric_critic else "state",
     )
 
 

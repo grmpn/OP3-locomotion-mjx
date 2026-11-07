@@ -154,6 +154,11 @@ reward terms are scaled by the control timestep and avoid double scaling.
   repeat implementation details. Documentation-only changes need no RL tests.
 - Inspect a rollout and command-tracking metrics before claiming walking works.
   Report checks actually run and any GPU or display limitations honestly.
+- After a policy finishes training, give the user its `uv run op3-play` launch
+  command and total average episode reward compared with previous runs. Use
+  the trainer's final evaluation mean episode return, identify runs with different
+  rewards, and leave behavioral evaluation to the user unless requested.
+  Do not automatically run a post-training behavior suite or claim walking works.
 - Create commits for meaningful, coherent changes with descriptive messages.
   Review the diff, run checks appropriate to the change, and stage only relevant
   files. Do not commit generated runs, caches, or unrelated user changes.

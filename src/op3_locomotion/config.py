@@ -36,6 +36,7 @@ class RewardConfig:
 
 @dataclass(frozen=True)
 class EnvConfig:
+    asymmetric_critic: bool = False
     physics_backend: str = "warp"
     collision_profile: str = "locomotion"
     collision_maxhullvert: int = -1  # -1 retains upstream hulls; otherwise >=4
