@@ -244,6 +244,15 @@ is no broad test framework or custom RL implementation.
 Measured on the development machine with the locked dependencies: maximum native/MJX
 qpos discrepancy `5.60e-6` and qvel discrepancy `5.22e-5` over the check's one-second
 small-action sequence; reset/timeout checks passed (`outputs/checks.json`). The
-three-second viewer startup passed, and keyboard command directions, clamping,
-zeroing and reset callbacks were checked. These are integration checks; longer
+three-second viewer startup passed. Actual X11 key events sent to the newly
+launched viewer verified W/S, A/D, Q/E, Space, R, and Escape, including title
+updates and clean exit (`outputs/viewer-keyboard-check.json`). Command clamping
+was also checked directly. These are integration checks; longer
 closed-loop walking/turning evaluation is still required.
+
+The initial baseline run uses 512 environments with otherwise default settings,
+seed 0, and 30 million requested steps, exporting approximately every million
+steps. Its seven-million-step checkpoint reaches about 0.18 m/s for a 0.15 m/s
+forward command, with repeated foot lift/landing, but substantial uncommanded yaw.
+Rightward motion and in-place turns remain poor. This intermediate checkpoint is
+not the final walking deliverable; reports are in `outputs/baseline-eval-7m/`.

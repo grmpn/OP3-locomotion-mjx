@@ -29,7 +29,9 @@ def versions():
     return result
 
 
-def save_export(root: Path, step: int, params, config: Config, mapping: dict):
+def save_export(
+    root: Path, step: int, params, config: Config, mapping: dict, run_versions: dict | None = None
+):
     root = root.resolve()
     network_config = checkpoint.network_config(
         mapping["observation_size"],
@@ -55,7 +57,7 @@ def save_export(root: Path, step: int, params, config: Config, mapping: dict):
                     "mapping",
                 ],
                 "full_training_state": False,
-                "versions": versions(),
+                "versions": versions() if run_versions is None else run_versions,
             },
             indent=2,
         )

@@ -61,6 +61,7 @@ def main():
     output = output.resolve()
     output.mkdir(parents=True, exist_ok=False)
     config.save(output / "config.json")
+    run_versions = versions()
     (output / "run.json").write_text(
         json.dumps(
             {
@@ -68,7 +69,7 @@ def main():
                 "device": str(devices[0]),
                 "device_kind": devices[0].device_kind,
                 "platform_version": devices[0].client.platform_version,
-                "versions": versions(),
+                "versions": run_versions,
                 "initialize_from": str(args.initialize_from),
                 "started_utc": datetime.now(timezone.utc).isoformat(),
             },
@@ -117,7 +118,9 @@ def main():
             )
 
     def save(step, make_policy, parameters):
-        path = save_export(output / "checkpoints", int(step), parameters, config, mapping)
+        path = save_export(
+            output / "checkpoints", int(step), parameters, config, mapping, run_versions
+        )
         print(f"Saved policy: {path}", flush=True)
 
     settings = asdict(config.ppo)
