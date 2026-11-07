@@ -3,8 +3,8 @@
 A small Robotis OP3 walking baseline using direct MuJoCo MJX physics and Brax's
 standard PPO trainer. Experiment decisions, evidence, and run lineage are recorded
 in [EXPERIMENTS.md](EXPERIMENTS.md). The native MuJoCo demo loads exported policy parameters and
-accepts body-frame velocity commands from the keyboard. There is no domain
-randomization, terrain generation, reset noise, or gait generator.
+accepts body-frame velocity commands from the keyboard. Physics parameters and
+terrain are fixed; no sensor noise or gait generator is used.
 An optional experiment samples predefined standing or left/right raised-foot
 reset poses; the default and selected demo still start standing.
 
@@ -197,6 +197,12 @@ zero velocities, and a separate seeded pose-choice stream. Physics parameters,
 nominal action targets and policy inputs are unchanged. Initial landings earn
 no air-time bonus. These starts expose single-foot support and recovery; useful
 lifting must still be checked from an ordinary standing start.
+
+The completed 1M-transition trials survived every standard case. Against the
+shared control, stronger standing posture reduced posture error by 5.3% but
+increased slip; raised resets increased air time but did not increase foot
+clearance. Both features remain opt-in, and the selected demo is unchanged.
+See D022–D023 in `EXPERIMENTS.md` for the full comparison and recovery checks.
 
 ## Evaluate and inspect behavior
 

@@ -337,7 +337,8 @@ exports are separate from the selected demo; results belong in `EXPERIMENTS.md`.
 All three runs initialize from `outputs/air-time-2` checkpoint `000001003520`,
 retaining slip −5, air time +2, original hulls, balanced commands, seed 0,
 512 training/32 evaluation environments and all source PPO settings. Each requests
-1,000,000 transitions with three evaluations; optimizer/RNG/step count restart.
+1,000,000 transitions with three evaluations; actual final step is 1,003,520.
+Optimizer/RNG/step count restart.
 
 | Run under `outputs/` | Additional standing posture weight | Raised-reset probability |
 | --- | ---: | ---: |

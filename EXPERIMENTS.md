@@ -655,3 +655,115 @@ demo. The requested air-time term is available with +2 as the new-run default;
 existing saved configs retain their original weights. Try this experimental
 export with `uv run op3-play outputs/air-time-2`. No rhythm or clearance target
 was added to obtain these results.
+
+## D022 Stronger posture regularization while standing
+
+**2026-11-07.** The requested "zero action input" means exactly zero requested
+`[vx, vy, yaw_rate]`, not zero policy joint actions. Add a separately logged
+`standing_posture` term, equal to summed squared leg-joint deviation from nominal
+only at that command. Test weight −0.45 on top of the existing −0.05 posture
+weight: total −0.5 standing (10×), unchanged −0.05 moving. Common 0.02 s reward
+scaling applies once. The new term defaults to zero for fresh and old configs.
+
+`outputs/standing-posture-10x` and shared control `outputs/standing-lift-control`
+both start from `outputs/air-time-2` checkpoint `000001003520`. Each requests 1M
+transitions with three evaluations, seed 0, 512 training/32 evaluation worlds,
+original hulls, balanced commands, slip −5 and air time +2. Actor, critic and
+normalization are restored; optimizer/RNG/step count restart. The control changes
+neither posture nor reset distribution. Implementation: `cf18745`.
+
+After 1,003,520 transitions, standing summed squared joint error is 0.54590 rad²
+versus 0.57637 for the matched control (5.3% lower). The equivalent per-joint RMS
+angle is 12.22° versus 12.56°. After the command-change sequence returns to zero,
+settled joint RMS is 12.34° versus 13.24° (6.8% lower). This is a modest improvement
+toward neutral, not neutral-pose standing. The original source's standing error
+was 0.60916 rad²; comparing only against it would overstate the effect.
+
+All eight standard cases survive, but the tradeoffs are mixed: mean planar RMSE
+is 2.3% higher, yaw RMSE 3.9% higher and contact slip 21.1% higher than control.
+Forward speed is 0.1502 m/s for a 0.15 request. Right yaw improves to −0.4702
+versus −0.3572 rad/s for −0.48, while left yaw weakens to 0.3757 versus 0.4135
+for +0.48. Keep this an experimental export, with the additional penalty default
+still zero. Inspect with `uv run op3-play outputs/standing-posture-10x`.
+
+## D023 Randomly selected raised-foot starts
+
+**2026-11-07.** In the separate `outputs/lift-reset-25` experiment, retain all
+source reward settings and sample 75% standing, 12.5% left raised, 12.5% right
+raised. This explicitly requested exception to fixed standing resets does not
+randomize masses, friction, forces, sensors or terrain. Selection uses a seeded
+stream derived separately from commands and PPO exploration. It changes only
+the initial state, with no imposed gait clock or repeated swing trajectory.
+
+Mirror two fixed poses: add 0.45 rad knee flexion, half the corresponding
+hip/ankle pitch offsets, and 0.15 rad hip/ankle roll toward the supporting side.
+Resolve base height from the original sole boxes: raised clearance 20.094 mm,
+supporting clearance 0.500 mm. Both poses stay within the policy's ±0.5 rad
+target range and have zero initial velocity, upright base orientation and no
+penetrating contacts. Actuator targets initially match the pose; nominal action
+and observation references remain the original standing configuration. Timers
+start unarmed, so the initial raised-foot landing cannot earn an air-time bonus.
+
+The source, budget, PPO settings and shared control match D022; its additional
+standing penalty stays zero. Both requested features remain opt-in. Evaluation
+and play default to standing for a fair locomotion comparison; `--reset-pose
+left` / `right` additionally test recovery. A raised start exposes recovery and
+single-foot support, but does not guarantee the policy learns to initiate lifts.
+
+Focused checks passed on CPU/GPU. Across 2,048 seeded choices, counts were
+1,532 standing, 255 left, 261 right, reproducibly. Both held poses remained
+upright for one native second. Native/MJX half-second zero-action rollouts from
+left/right raised starts had maximum qpos discrepancies 5.05e−7 / 8.11e−7 and
+qvel discrepancies 2.24e−5 / 6.65e−5. Batched reset/timeout and observation
+consistency checks passed. Selection uses `mjx.Data.where` to preserve shared
+Warp contact buffers; generic JAX conditional selection is unsuitable here.
+Existing default-reset/fall, air-time, slip, mapping and keyboard checks also
+passed. Evidence: `outputs/standing-reset-checks-{cpu,gpu}.json` and
+`outputs/standing-reset-baseline-checks.json`.
+
+### Matched results and recovery checks
+
+All three PPO jobs completed 1,003,520 transitions with finite logged metrics,
+zero reported buffer overflow and 500-step final evaluation episodes. Resolved
+configs differ only in `reward.standing_posture` for D022 or
+`lift_reset_probability` for D023. Each exported policy then survived all eight
+standard native cases from standing: seven 10 s commands and a 50 s command-change
+sequence. Tracking/slip means below weight those cases equally. Air-time and
+clearance means cover the two feet in six independent nonzero-command cases,
+excluding the first second; clearance averages the per-foot/case maximum.
+Air-time diagnostics sample at 50 Hz and omit incomplete swings.
+
+| Metric | Matched control | Standing posture 10× | Raised resets 25% |
+| --- | ---: | ---: | ---: |
+| Standing posture error, rad² | 0.57637 | 0.54590 | 0.49856 |
+| Standing joint RMS error, degrees | 12.56 | 12.22 | 11.68 |
+| Settled stop joint RMS error, degrees | 13.24 | 12.34 | 13.44 |
+| Planar velocity RMSE, m/s | 0.01727 | 0.01767 | 0.01760 |
+| Yaw-rate RMSE, rad/s | 0.09678 | 0.10053 | 0.08157 |
+| Supported contact slip, m/s | 0.004293 | 0.005197 | 0.004923 |
+| Mean completed air time, ms | 79.5 | 79.9 | 86.2 |
+| Mean peak sole clearance, mm | 4.93 | 4.69 | 4.32 |
+
+Raised resets increase measured air time by 8.4% but reduce peak clearance by
+12.4% against the matched control. Yaw RMSE improves 15.7%, while planar RMSE and
+slip worsen 1.9% and 14.7%. Standing posture also improves, but its settled stop
+posture does not. The additional reset exposure does not establish higher foot
+lifting in this budget. It should not be interpreted as solving the low-clearance
+gait because it produces longer unsupported intervals.
+
+Both the control and raised-reset policy additionally survived all eight forced
+recovery cases each: left/right raised starts under stand, forward, left yaw and
+right yaw, each for 10 s. Thus successful recovery alone is not evidence of a new
+capability from the raised-reset training. Inspected initial reset frames and
+standing/forward rollout frames alongside the trajectories: both initial 2 cm
+lifts are visible, while subsequent walking retains low clearance. No cadence,
+phase or foot-height reward was added. These are single-seed continuations;
+directional changes may also reflect stochastic training/numerical divergence.
+
+Reports/traces are in `outputs/{standing-posture-10x,lift-reset-25,standing-lift-control}-eval/`.
+Raised-start reports use the additional `-left-eval` / `-right-eval` suffixes for
+the latter two runs. Combined metrics: `outputs/standing-lift-comparison.json`.
+Inspected images: `outputs/standing-lift-rollout-frames.jpg` and
+`outputs/standing-lift-reset-poses.jpg`. The selected demo remains
+`outputs/op3-policy`; both new options remain disabled by default. Inspect the
+raised-start export with `uv run op3-play outputs/lift-reset-25 --reset-pose left`.
