@@ -6,11 +6,44 @@ in [EXPERIMENTS.md](EXPERIMENTS.md). The native MuJoCo demo loads exported polic
 accepts body-frame velocity commands from the keyboard. There is no domain
 randomization, terrain generation, reset noise, or gait generator.
 
-**Current validation:** GPU reset/step, native/MJX parity, a 640-step GPU PPO
-update, policy export/reload, rendered inference, and viewer startup pass. The
-smoke policy in `outputs/smoke-compatible` stands, but does not walk or turn on
-command. A trained walking policy has not yet been demonstrated. Run artifacts
-and evaluation reports live in `outputs/` (ignored by Git).
+The selected trained policy is available locally in `outputs/op3-policy/`, with
+its source lineage in `training_lineage.json`. Launch it from the repository root:
+
+```sh
+uv run op3-play outputs/op3-policy
+```
+
+It survived all seven independent ten-second command cases and a continuous
+50-second sequence of standing, walking, turning while walking, lateral motion,
+and stopping. Settled native MuJoCo measurements (excluding the first second):
+
+| Command | Requested | Measured |
+| --- | ---: | ---: |
+| forward velocity | +0.150 m/s | +0.150 m/s |
+| backward velocity | −0.150 m/s | −0.144 m/s |
+| left velocity | +0.090 m/s | +0.084 m/s |
+| right velocity | −0.090 m/s | −0.076 m/s |
+| left yaw rate | +0.480 rad/s | +0.429 rad/s |
+| right yaw rate | −0.480 rad/s | −0.404 rad/s |
+
+The gait uses quick, short steps with millimetre-scale clearance. Tracking is
+imperfect: there is yaw drift, asymmetry, some contact slip, and small foot
+unloading even at zero command. These are fixed-start simulation results on the
+default floor, not evidence of physical-robot robustness. Detailed reports are
+in `outputs/balanced-candidate-12m/`; decisions and comparisons are in
+[EXPERIMENTS.md](EXPERIMENTS.md).
+
+Eight-second tests also survived all individual-axis command limits and a
+40-second reversal/stop sequence (`outputs/demo-command-limits/`). Small left
+turns can undershoot substantially: +0.4 rad/s requested produced +0.208 rad/s
+settled; backward motion at −0.25 m/s had approximately −0.195 rad/s unwanted
+yaw. Combined command extremes have not been exhaustively validated.
+
+The selected export inherits 15,052,800 baseline plus 12,042,240 refinement
+transitions. The final refinement checkpoint was rejected because sustained
+left turning regressed. Runs, policies, reports and videos are ignored by Git.
+A fresh clone needs a copy of the local export (or `outputs/op3-policy.zip`,
+unpacked into `outputs/`) or a new training run using the recipe below.
 
 ## Setup
 
@@ -65,8 +98,14 @@ uv run op3-train --output outputs/smoke --num-timesteps 640 \
   --num-envs 32 --batch-size 16 --num-minibatches 2 \
   --num-evals 2 --num-eval-envs 4
 
-# Baseline training (GPU required):
-uv run op3-train --output outputs/baseline --num-timesteps 30000000
+# Initial policy (GPU required; development run used 512 environments):
+uv run op3-train --output outputs/baseline --num-timesteps 15000000 \
+  --num-envs 512 --num-evals 16
+
+# Warm-start refinement with direct coverage of each keyboard command mode:
+uv run op3-train --config outputs/baseline/config.json --output outputs/balanced \
+  --initialize-from outputs/baseline/checkpoints/000015052800 \
+  --command-sampling balanced --num-timesteps 15000000 --num-evals 16
 ```
 
 The output directory must be new. Each run prints the selected GPU and records
@@ -104,12 +143,12 @@ explicitly not exact resume.
 ## Evaluate and inspect behavior
 
 ```sh
-uv run op3-evaluate outputs/baseline
-uv run op3-evaluate outputs/baseline --physics mjx
+uv run op3-evaluate outputs/op3-policy
+uv run op3-evaluate outputs/op3-policy --physics mjx
 # Render videos (use MUJOCO_GL=egl on a compatible headless Linux host):
-uv run op3-evaluate outputs/baseline --video --cases stand forward turn_left changes
+uv run op3-evaluate outputs/op3-policy --video --cases stand forward turn_left changes
 # Compare against fixed standing targets to detect a stand-still solution:
-uv run op3-evaluate outputs/baseline --nominal
+uv run op3-evaluate outputs/op3-policy --nominal
 ```
 
 A run directory, its `checkpoints` directory, or an individual export can be
@@ -138,10 +177,16 @@ MuJoCo evaluation uses CPU policy inference; `--physics mjx` uses the training
 physics backend on GPU. Reports are stored alongside the selected checkpoint,
 or in `--output DIRECTORY`.
 
+The completed selected-policy videos are `outputs/demo-video/forward.mp4`,
+`turn_left.mp4`, `turn_right.mp4`, and `changes.mp4`. The last clip contains a
+continuous fifteen-second stand/walk/moving-turn/lateral/stop sequence. These
+short videos complement the longer headless tracking tests; their matching
+traces and report are in the same directory.
+
 ## Keyboard demo
 
 ```sh
-uv run op3-play outputs/baseline
+uv run op3-play outputs/op3-policy
 ```
 
 The display requires GLFW/OpenGL. The renderer has its own key callback so it
@@ -161,7 +206,13 @@ The title and on-screen overlay display `[vx, vy, yaw_rate]`. Commands clamp to
 the export's trained range. The camera follows the torso; a fall freezes physics
 until R. Simulation and inference run at 50 Hz, with ten 2 ms MuJoCo substeps per
 action, matching training. If the host cannot keep up, simulated time runs more
-slowly. `--seconds 5` performs a finite viewer startup check.
+slowly. Control updates use an elapsed-time accumulator independent of rendered
+frames, with catch-up capped at 250 ms after a slow/paused window. The viewer
+disables shadows and reflections to reduce display cost; physics and the default
+floor are unchanged. On this machine's llvmpipe software OpenGL display, the
+final check advances 9.98 simulated seconds in the ten-second viewer loop while
+rendering about 9.6 fps (`outputs/demo-viewer-final.json`). GPU training does not
+imply GPU rendering. `--seconds 5` performs a finite viewer startup check.
 
 ## Environment conventions
 
@@ -258,26 +309,24 @@ small-action sequence; reset/timeout checks passed (`outputs/checks.json`). The
 three-second viewer startup passed. Actual X11 key events sent to the newly
 launched viewer verified W/S, A/D, Q/E, Space, R, and Escape, including title
 updates and clean exit (`outputs/viewer-keyboard-check.json`). Command clamping
-was also checked directly. These are integration checks; longer
-closed-loop walking/turning evaluation is still required.
+was also checked directly. The selected packaged policy also passes a five-second
+viewer startup check (`outputs/demo-viewer.log`).
 
-The initial baseline run uses 512 environments with otherwise default settings,
-seed 0, and 30 million requested steps, exporting approximately every million
-steps. Its seven-million-step checkpoint reaches about 0.18 m/s for a 0.15 m/s
-forward command, with repeated foot lift/landing, but substantial uncommanded yaw.
-Rightward motion and in-place turns remain poor. This intermediate checkpoint is
-not the final walking deliverable; reports are in `outputs/baseline-eval-7m/`.
+The selected policy also survives ten-second MJX forward/turn tests and the
+50-second command-change sequence (`outputs/demo-mjx/`). Settled MJX forward
+speed is 0.149 m/s; left/right yaw is +0.422/−0.426 rad/s. Change-sequence planar
+and yaw RMSE are 0.0174 m/s and 0.0914 rad/s, compared with native 0.0171 and
+0.0878. CPU/GPU actions on identical observations differ by at most `3.88e-7`.
+Contact-rich trajectories are not identical: one-second identical-action replay
+has worst qpos/qvel component differences 0.0167/0.417 across the tested cases
+(`outputs/demo-parity.json`). Thus the tighter small-action check above is not a
+claim of exact full-policy trajectory parity. MJX evaluation's geometry/contact
+diagnostics use native forward recomputation at the MJX state.
 
-Evaluation at 15,052,800 baseline steps passes standing and all four translation
-directions, but left in-place yaw settles near zero. Refinement therefore starts
-from that saved policy and changes only command sampling:
-
-```sh
-uv run op3-train --config outputs/baseline/config.json --output outputs/balanced \
-  --initialize-from outputs/baseline/checkpoints/000015052800 \
-  --command-sampling balanced --num-timesteps 15000000 --num-evals 16
-```
-
-The baseline run was deliberately stopped after saving 16,056,320 steps;
-`outputs/baseline/stopped.json` records the reason. This is a policy warm start,
-not an optimizer/RNG resume. Refinement behavior still requires evaluation.
+The original baseline requested 30M steps and was stopped after saving
+16,056,320; refinement used the evaluated 15,052,800 export. The reproduction
+recipe above stops the first stage at that export instead. Both stages use seed
+0, 512 environments, the same rewards/physics and default network/PPO settings.
+Refinement completed 15,052,800 additional steps in 826.8 s, with approximately
+23k control transitions/s after compilation. Checkpoint selection remains
+necessary; do not assume the latest export is the best policy.

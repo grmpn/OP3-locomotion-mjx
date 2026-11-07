@@ -18,7 +18,7 @@ recorded event timestamp are marked as backfilled rather than assigned one.
 | `smoke` | 2026-11-06, before 23:54 | Initial newest-package dependency set | Failed before PPO updates: removed JAX replication API |
 | `smoke-compatible` | 2026-11-06 23:54:54 | Seed 0; 32 envs; batch 16 × 2; 640 control steps | PPO update, export/reload, rendering, and viewer checks passed; not a walking policy |
 | `baseline` | 2026-11-06 23:58:58 | Seed 0; 512 envs; batch 128 × 4; uniform combined commands plus 20% standing; 30M requested steps | Intentionally stopped; last saved checkpoint 16,056,320; selected evaluated checkpoint 15,052,800 for refinement |
-| `balanced` | 2026-11-07 00:17:06 | Weights/normalization from baseline 15,052,800; seed 0; same PPO/physics/rewards; balanced command modes; 15M requested additional steps | Running; full suite at 5,017,600; longer turn/stand tests at 9,031,680 additional steps |
+| `balanced` | 2026-11-07 00:17:06 | Weights/normalization from baseline 15,052,800; seed 0; same PPO/physics/rewards; balanced command modes; 15M requested additional steps | Finished at 15,052,800 additional steps in 826.8 s; selected 12,042,240 after all-direction and transition validation; final checkpoint rejected for left-turn regression |
 
 Run settings are in `outputs/<run>/config.json`, provenance in `run.json`, and
 training/evaluation aggregates in `metrics.jsonl`. The baseline start revision is
@@ -255,3 +255,178 @@ finishes. Left-turn behavior is no longer stationary; evaluate the final
 checkpoints across all directions and longer transitions before selecting the
 demo policy. No reward-weight or gait-shaping change is justified by this result
 alone. Evidence: `outputs/balanced-turns-9m/report.json`.
+
+## D013 Final checkpoint regression and selection
+
+**2026-11-07 00:33 UTC.** Balanced refinement completed 15,052,800 additional
+steps in 826.8 seconds. The final checkpoint survives the seven independent
+ten-second native cases and tracks translations and right yaw, but left yaw
+regressed: settled +0.0188 rad/s for +0.48 requested, with no touchdowns after
+settling. Right yaw settles at −0.446 rad/s for −0.48. This invalidates using the
+last export automatically as the demo policy, despite good aggregate return.
+Evidence: `outputs/balanced-final-eval/` (continuous changes still being evaluated
+when this decision was written).
+
+**Decision:** evaluate saved refinement checkpoints 9,031,680 and 12,042,240 on
+the same complete ten-second suite. The former already demonstrated sustained
+left turns. Select using directional tracking, survival, gait evidence and
+continuous transitions; do not select using aggregate PPO return alone. Do not
+change rewards or launch another training run before evaluating these existing
+candidates. The single-run comparisons are checkpoint selection, not independent
+replication or proof of the sampler's causal effect.
+
+## D014 Choose the twelve-million-step refinement checkpoint
+
+**2026-11-07 00:35 UTC.** All eight cases survive the complete ten-second suite
+for both candidates (50 seconds continuous for `changes`). Checkpoint 12,042,240
+has settled left/right yaw +0.429/−0.404 rad/s for ±0.48, versus +0.457/−0.285
+at checkpoint 9,031,680. Its settled forward/backward speeds are +0.150/−0.144 m/s
+for ±0.15, and lateral speeds +0.084/−0.076 m/s for ±0.09. The continuous change
+sequence has planar/yaw RMSE 0.017/0.088 (m/s, rad/s), including transients.
+
+**Decision:** select `outputs/balanced/checkpoints/000012042240` for final demo
+validation. This retains both turn directions with smaller worst-direction bias
+than the earlier candidate and avoids the final checkpoint's stationary left
+turn. The selected lineage contains 15,052,800 baseline plus 12,042,240 refinement
+transitions (27,095,040 total); the actual runs performed additional unselected
+updates. Evidence: `outputs/balanced-candidate-9m/report.json` and
+`outputs/balanced-candidate-12m/report.json`.
+
+Now check rendered gait, GPU MJX behavior, and reload the packaged export in the
+keyboard viewer. These checks must pass before calling the deliverable complete.
+No reward, physical-model, or command-range change was made during selection.
+
+## D015 Command limits and keyboard behavior
+
+**2026-11-07 00:37 UTC.** Probe each signed command limit for eight seconds and
+actual keyboard yaw increments ±0.4 rad/s. All cases survive, as does a continuous
+40-second forward/backward/left-yaw/right-yaw/stop sequence. Settled speeds at
+limits are +0.240/−0.243 m/s forward/backward (requested ±0.25), +0.136/−0.127 m/s
+lateral (requested ±0.15), and +0.751/−0.698 rad/s yaw (requested ±0.8).
+The +0.4 rad/s left command settles near +0.208; −0.4 right settles near −0.353.
+Backward motion at the maximum command has unwanted yaw around −0.195 rad/s.
+Evidence: `outputs/demo-command-limits/report.json`; each case's exact commands
+and trajectories are saved there. These are individual-axis probes and one
+reversal sequence, not exhaustive coverage of simultaneous command extremes.
+
+**Decision:** retain the trained bounds and describe imperfect low-rate turning
+and backward yaw drift. Do not hide this by narrowing the displayed command range.
+The packaged policy at `outputs/op3-policy/` loads successfully in the real GLFW
+viewer for five seconds and exits cleanly (`outputs/demo-viewer.log`). The
+previous actual-key-event integration check covers every key, reset, stop and
+exit; the UI path is unchanged. Package the selected export and its lineage as
+a local archive after remaining rendering and parity checks finish.
+
+## D016 Native/MJX comparison and rendered gait
+
+**2026-11-07 00:38 UTC.** The selected policy survives ten-second GPU MJX forward
+and both in-place turns, plus the full 50-second continuous change sequence.
+Settled forward speed is 0.149 m/s; left/right yaw rates are +0.422/−0.426 rad/s.
+The change sequence has planar/yaw RMSE 0.0174/0.0914 (m/s, rad/s), close to
+native MuJoCo's 0.0171/0.0878. Evidence: `outputs/demo-mjx/report.json` and
+`outputs/balanced-candidate-12m/report.json`.
+
+One-second replay of identical trained actions measures maximum native/MJX qpos
+component differences of 0.00171 (forward), 0.0167 (left yaw), and 0.00157 (right
+yaw); qvel maxima are 0.0906, 0.417, and 0.0335 respectively. CPU/GPU actions on
+identical observations differ by at most 3.88e-7. The larger contact-rich state
+differences mean these backends are not trajectory-identical; the small-action
+smoke check's tighter errors must not be presented as full-policy equivalence.
+Timing, model preparation, observations, action transform and normalization are
+shared, and the closed-loop behavior agrees. Evidence: `outputs/demo-parity.json`.
+
+Rendered forward and both turn rollouts show upright motion with foot lifting
+and changing orientation. Native ten-second forward diagnostics record 43
+landings per foot after settling, 8.1/6.6 mm maximum sole clearance, and
+0.0032/0.0090 m/s mean contact-point slip. The gait is rapid and short-stepped,
+with some slip; it is not a smooth humanlike gait. Standing has small foot
+unloading and yaw drift. Forward/turn videos are complete; the continuous
+command-change video is still rendering as this entry is written.
+
+**Decision:** accept native MuJoCo for the interactive demo with the documented
+numerical and tracking limits. Keep the selected export and finish the video,
+artifact packaging, documentation review and commit. No additional training or
+reward shaping is justified for the requested simple baseline.
+
+## D017 Interactive rendering performance
+
+**2026-11-07 00:41 UTC.** All requested videos finished, including the 15-second
+continuous command-change clip, and sampled frames were inspected. The packaged
+policy and archive reload successfully. Before finalizing, measure actual viewer
+throughput: this display uses `llvmpipe` software OpenGL and processes only 11
+control steps in 5.71 wall seconds (0.22 simulated seconds). This is too slow for
+a useful interactive demo despite successful startup and key handling.
+Evidence: `outputs/demo-viewer-performance.json`.
+
+**Decision:** benchmark disabling shadows/reflections in the viewer. This changes
+only rendering, not meshes, collision masks, physics, observations, policy or
+control dt. Keep the full original scene/floor. Do not claim real-time playback
+from GPU training throughput or native inference speed alone.
+
+## D018 Final viewer fix and completed deliverable
+
+**2026-11-07 00:43 UTC.** Disabling shadows/reflections alone improves the software
+viewer from 1.93 to 9.18 steps/s, but still couples simulation speed to rendering.
+Use elapsed-wall-time accumulation to perform fixed 20 ms policy updates between
+frames. Cap catch-up at 250 ms to keep a paused or overloaded window responsive.
+Reset clears accumulated time; falls still freeze until reset. Preserve all
+physics substeps, observations, action transformations, model geometry and policy.
+The renderer changes lighting effects only; the scene floor remains unchanged.
+
+The final real-window check advances 9.98 simulated seconds during the ten-second
+viewer loop; total measured wall time including rendering setup is 10.67 s.
+It renders about 9.56 frames/s on llvmpipe, so motion is near real time but visually
+less smooth than GPU rendering. Evidence: `outputs/demo-viewer-final.json` and
+the earlier `demo-viewer-performance.json`/`demo-viewer-fast-check.json` comparisons.
+Lint and format checks pass after the change. No extra PPO training was needed.
+
+All four final videos finished and decode with the expected duration and 25 fps:
+three seconds each for forward, left turn and right turn; fifteen seconds for
+the continuous stand/forward/forward+turn/lateral/stop sequence. Sampled frames
+show upright stepping, turning and stopping. Reports and videos are under
+`outputs/demo-video/`. The selected export, normalization, settings, mappings,
+lineage and evaluation reports are packaged in `outputs/op3-policy.zip` and can
+be loaded from `outputs/op3-policy/`. Generated artifacts remain outside Git.
+
+## End-of-training experiment summary
+
+The requested simple baseline now has a saved policy and runnable keyboard demo.
+The selected policy inherits **27,095,040 transitions**: 15,052,800 initial plus
+12,042,240 refinement steps. Both training stages use seed 0, standard Brax PPO,
+512 environments, fixed physical resets and the same rewards/physics. The
+refinement changes command sampling and warm-starts weights/normalization;
+optimizer/RNG state is restarted. It is not an exact training resume.
+
+| Experiment | Observation | Resulting decision |
+| --- | --- | --- |
+| Full-mesh MJX-JAX compilation | Excessive compilation cost for this machine | Use official MJX Warp; disable only authorized head/arm collision participation |
+| Newest JAX/Brax combination | Removed JAX replication API prevented PPO | Pin a compatible locked stack and verify GPU updates/export reload |
+| Uniform-command baseline | Translation learned; sustained left in-place yaw remained near zero | Refine with balanced standing, axial and combined command modes |
+| Refinement 9.03M / 12.04M / 15.05M | Settled left/right yaw +0.457/−0.285, +0.429/−0.404, +0.019/−0.446 rad/s | Choose 12.04M for both turn directions; reject latest despite good aggregate return |
+| Selected policy validation | All native ten-second cases and 50-second changes survive; GPU MJX behavior is comparable | Package selected policy for native interactive inference |
+| Software-rendered viewer | Rendering originally slowed simulation to ~2 control steps/s | Disable costly effects and decouple fixed control updates from frame rate |
+
+The selected native policy settles near +0.150/−0.144 m/s for forward/backward
+commands ±0.15, +0.084/−0.076 m/s for lateral ±0.09, and +0.429/−0.404 rad/s for
+yaw ±0.48. Its continuous changes have planar/yaw RMSE 0.0171 m/s / 0.0878 rad/s,
+including transitions. Forward movement has repeated foot lift/landing and low
+but nonzero contact slip, not merely sliding or standing under a motion command.
+No foot-air-time, clearance or slip reward, gait generator, terrain curriculum,
+physics randomization or mesh decimation was added.
+
+Limitations remain: short rapid steps, yaw drift, asymmetric small turns, some
+slip, and small foot unloading while standing. A +0.4 yaw request undershoots
+near +0.208 rad/s. High-speed backward motion introduces unwanted yaw. Individual
+command limits and one reversal sequence passed eight-second segments; simultaneous
+extreme commands and long-duration robustness are not exhaustively established.
+These are deterministic, fixed-start default-floor simulation demonstrations,
+not physical-robot transfer evidence. Native and MJX contact trajectories differ
+numerically even when overall behavior agrees. Software display rendering is
+approximately ten fps despite near-real-time simulation.
+
+The sampler comparison is one lineage with more optimization and no independent
+ablation. It supports the practical checkpoint choice, not a causal claim that
+balancing alone produced the improvement. Longer training was not monotonically
+better; directional held-command tests exposed a regression hidden by average
+return. Future work should start from the saved evidence and those limitations,
+not from a claim that all command tracking is solved.

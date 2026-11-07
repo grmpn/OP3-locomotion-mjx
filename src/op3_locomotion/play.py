@@ -71,11 +71,15 @@ def main():
     controls = KeyboardCommand(config.env.command_max)
     glfw.set_key_callback(window, controls.on_key)
     scene = mujoco.MjvScene(env.model, maxgeom=2000)
+    # Shadow maps and floor reflections are costly on software OpenGL displays.
+    scene.flags[mujoco.mjtRndFlag.mjRND_SHADOW] = False
+    scene.flags[mujoco.mjtRndFlag.mjRND_REFLECTION] = False
     context = mujoco.MjrContext(env.model, mujoco.mjtFontScale.mjFONTSCALE_150)
     camera = mujoco.MjvCamera()
     camera.distance, camera.azimuth, camera.elevation = 1.0, 135, -15
     option, perturb = mujoco.MjvOption(), mujoco.MjvPerturb()
-    started = time.monotonic()
+    started = previous_tick = time.monotonic()
+    accumulator = env.dt
     print(
         "W/S forward/back | A/D lateral | Q/E yaw | Space stop | R reset | Escape exit", flush=True
     )
@@ -84,12 +88,20 @@ def main():
             tick = time.monotonic()
             if args.seconds is not None and tick - started >= args.seconds:
                 break
+            # Keep fixed control updates independent of display frame rate.
+            # Bound catch-up after a paused/slow window so input stays responsive.
+            accumulator = min(accumulator + tick - previous_tick, 0.25)
+            previous_tick = tick
             glfw.poll_events()
             if controls.reset_requested:
                 simulation.reset()
                 controls.reset_requested = False
-            if not simulation.done:
+                accumulator = env.dt
+            while accumulator >= env.dt and not simulation.done:
                 simulation.step(controls.value)
+                accumulator -= env.dt
+            if simulation.done:
+                accumulator = 0.0
             command_text = (
                 f"vx {controls.value[0]:+.2f} m/s   vy {controls.value[1]:+.2f} m/s   "
                 f"yaw {controls.value[2]:+.2f} rad/s"
