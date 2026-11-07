@@ -106,10 +106,20 @@ def main():
         assert "reward" not in batch.info["episode_metrics"]
         np.testing.assert_allclose(batch.info["episode_metrics"]["sum_reward"], batch.reward)
         assert not np.asarray(batch.done).any()
+        # Air-time history must not leak from a truncated episode into its reset.
+        batch = batch.replace(
+            info={
+                **batch.info,
+                "feet_air_time": jp.full((2, 2), 0.1),
+                "feet_air_armed": jp.ones((2, 2), dtype=bool),
+            }
+        )
         batch = wrapped_step(batch, jp.zeros((2, env.action_size)))
         np.testing.assert_array_equal(batch.done, np.ones(2))
         np.testing.assert_array_equal(batch.info["truncation"], np.ones(2))
         np.testing.assert_array_equal(batch.info["previous_action"], np.zeros((2, env.action_size)))
+        np.testing.assert_array_equal(batch.info["feet_air_time"], np.zeros((2, 2)))
+        np.testing.assert_array_equal(batch.info["feet_air_armed"], np.zeros((2, 2), dtype=bool))
         expected_obs = jax.vmap(env.observation)(
             batch.pipeline_state, batch.info["command"], batch.info["previous_action"]
         )
@@ -124,6 +134,9 @@ def main():
         batch = wrapped_step(batch, jp.zeros((2, env.action_size)))
         np.testing.assert_array_equal(batch.done, np.ones(2))
         np.testing.assert_array_equal(batch.info["truncation"], np.zeros(2))
+        np.testing.assert_array_equal(batch.metrics["reward/foot_air_time"], np.zeros(2))
+        np.testing.assert_array_equal(batch.info["feet_air_time"], np.zeros((2, 2)))
+        np.testing.assert_array_equal(batch.info["feet_air_armed"], np.zeros((2, 2), dtype=bool))
         report["reset_and_timeout"] = "passed"
     report["wall_seconds"] = time.monotonic() - started
     print(json.dumps(report, indent=2), flush=True)

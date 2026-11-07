@@ -75,6 +75,18 @@ def foot_diagnostics(model, data, foot_bodies):
     return np.asarray(clearance), normal_force, slip
 
 
+def completed_air_times(support, dt):
+    """Durations bounded by observed support on both sides; omit partial swings."""
+    durations = []
+    for foot in range(2):
+        starts = np.flatnonzero(support[:-1, foot] & ~support[1:, foot]) + 1
+        ends = np.flatnonzero(~support[:-1, foot] & support[1:, foot]) + 1
+        indices = np.searchsorted(ends, starts, side="right")
+        complete = indices < len(ends)
+        durations.append((ends[indices[complete]] - starts[complete]) * dt)
+    return durations
+
+
 def gait_summary(trace, dt):
     """Diagnostic evidence, not an automatic walking certificate."""
     # Exclude the fixed reset's initial landing and first second of settling.
@@ -84,6 +96,7 @@ def gait_summary(trace, dt):
     foot_xy = trace["feet_xy"][start:]
     speed = np.linalg.norm(np.diff(foot_xy, axis=0), axis=-1) / dt
     planted = support[:-1] & support[1:]
+    air_times = completed_air_times(support, dt)
     # Foot-body speed while supported is a slip proxy; rolling can also move its origin.
     stance_speed = [
         float(speed[:, foot][planted[:, foot]].mean()) if planted[:, foot].any() else None
@@ -91,6 +104,9 @@ def gait_summary(trace, dt):
     ]
     return {
         "swing_fraction": (~support).mean(axis=0).tolist(),
+        "both_feet_unsupported_fraction": float((~support).all(axis=1).mean()),
+        "mean_completed_air_time": [float(t.mean()) if len(t) else None for t in air_times],
+        "max_completed_air_time": [float(t.max()) if len(t) else None for t in air_times],
         "touchdowns": ((~support[:-1]) & support[1:]).sum(axis=0).tolist(),
         "maximum_sole_clearance": clearance.max(axis=0).tolist(),
         "mean_supported_foot_speed": stance_speed,

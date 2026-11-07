@@ -15,7 +15,7 @@ from mujoco import mjx
 from op3_locomotion.config import LEG_JOINTS, REVISION, EnvConfig
 from op3_locomotion.observations import base_motion, observe
 from op3_locomotion.policy import position_targets
-from op3_locomotion.rewards import foot_slip, reward_terms, weighted_terms
+from op3_locomotion.rewards import foot_slip, reward_terms, update_air_time, weighted_terms
 
 
 def default_assets() -> Path:
@@ -43,7 +43,7 @@ def load_model(assets: Path, config: EnvConfig):
         for mesh in spec.meshes:
             if mesh.name in collision_meshes:
                 mesh.maxhullvert = config.collision_maxhullvert
-    if config.reward.foot_slip:
+    if config.reward.foot_slip or config.reward.foot_air_time:
         for side in ("l", "r"):
             body = spec.body(f"{side}_ank_roll_link")
             boxes = [geom for geom in body.geoms if geom.type == mujoco.mjtGeom.mjGEOM_BOX]
@@ -136,7 +136,7 @@ class OP3Env(Env):
         mujoco.mj_forward(m, d)
         self.foot_bodies = [m.body(f"{side}_ank_roll_link").id for side in ("l", "r")]
         self.slip_sensor_indices = None
-        if config.reward.foot_slip:
+        if config.reward.foot_slip or config.reward.foot_air_time:
             self.slip_sensor_indices = jp.array(
                 [
                     [
@@ -276,6 +276,8 @@ class OP3Env(Env):
             "command": command,
             "command_age": jp.array(0, dtype=jp.int32),
             "previous_action": action,
+            "feet_air_time": jp.zeros(2),
+            "feet_air_armed": jp.zeros(2, dtype=jp.bool_),
             "time_out": jp.array(0.0),
         }
         return State(
@@ -290,8 +292,27 @@ class OP3Env(Env):
     def step(self, state, action):
         action = jp.clip(action, -1.0, 1.0)
         data = state.pipeline_state.replace(ctrl=self.targets(action))
-        data = jax.lax.fori_loop(
-            0, self.config.action_repeat, lambda _, d: mjx.step(self.mjx_model, d), data
+        moving = jp.max(jp.abs(state.info["command"]) / jp.array(self.config.command_max))
+        moving = moving > self.config.reward.air_time_command_threshold
+
+        def substep(_, carry):
+            data, air_time, armed, bonus = carry
+            data = mjx.step(self.mjx_model, data)
+            if self.config.reward.foot_air_time:
+                contacts = data.sensordata[self.slip_sensor_indices].reshape(2, 8, 6)
+                load = jp.sum(jp.maximum(contacts[..., 0], 0.0), axis=-1)
+                supported = load > self.config.reward.air_time_contact_force
+                air_time, armed, touchdown_bonus = update_air_time(
+                    air_time, armed, supported, moving, self.config.physics_dt
+                )
+                bonus += touchdown_bonus
+            return data, air_time, armed, bonus
+
+        data, air_time, armed, air_time_bonus = jax.lax.fori_loop(
+            0,
+            self.config.action_repeat,
+            substep,
+            (data, state.info["feet_air_time"], state.info["feet_air_armed"], jp.array(0.0)),
         )
         gravity, linear, angular = base_motion(data.qpos, data.qvel)
         finite = jp.all(jp.isfinite(data.qpos)) & jp.all(jp.isfinite(data.qvel))
@@ -324,9 +345,10 @@ class OP3Env(Env):
                     data.sensordata[self.slip_sensor_indices].reshape(2, 8, 6),
                     self.config.reward.slip_contact_force,
                 )
-                if self.slip_sensor_indices is not None
+                if self.config.reward.foot_slip
                 else 0.0
             ),
+            air_time=air_time_bonus,
         )
         weighted = weighted_terms(terms, self.config.reward)
         # No positive reward on a fall/invalid transition. Metrics reflect the paid terms.
@@ -364,6 +386,8 @@ class OP3Env(Env):
             "command": command,
             "command_age": age,
             "previous_action": action,
+            "feet_air_time": air_time,
+            "feet_air_armed": armed,
             "time_out": jp.array(0.0),
         }
         obs = jp.nan_to_num(self.observation(data, command, action))
@@ -420,7 +444,14 @@ class AutoReset(Wrapper):
             return jp.where(mask, fresh_value, value)
 
         info = dict(state.info)
-        for name in ("rng", "command", "command_age", "previous_action"):
+        for name in (
+            "rng",
+            "command",
+            "command_age",
+            "previous_action",
+            "feet_air_time",
+            "feet_air_armed",
+        ):
             info[name] = select(fresh.info[name], info[name])
         info["time_out"] = info["truncation"]
         return state.replace(

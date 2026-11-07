@@ -104,7 +104,7 @@ uv run op3-train --output outputs/smoke --num-timesteps 640 \
 
 # Initial policy (GPU required; development run used 512 environments):
 uv run op3-train --output outputs/baseline --num-timesteps 15000000 \
-  --num-envs 512 --num-evals 16 --foot-slip-weight 0
+  --num-envs 512 --num-evals 16 --foot-slip-weight 0 --foot-air-time-weight 0
 
 # Warm-start refinement with direct coverage of each keyboard command mode:
 uv run op3-train --config outputs/baseline/config.json --output outputs/balanced \
@@ -116,6 +116,12 @@ uv run op3-train --config outputs/op3-policy/run_config.json \
   --initialize-from outputs/op3-policy --output outputs/slip-trial \
   --foot-slip-weight -5 --collision-maxhullvert 16 \
   --num-timesteps 1000000 --num-evals 3
+
+# Add air time without prescribing a gait period, starting from the slip trial:
+uv run op3-train --config outputs/slip-hull-full/config.json \
+  --initialize-from outputs/slip-hull-full --output outputs/air-time-trial \
+  --foot-air-time-weight 2 --num-timesteps 1000000 --num-evals 3
+# Use --foot-air-time-weight 0 with another output directory for a matched control.
 ```
 
 The output directory must be new. Each run prints the selected GPU and records
@@ -152,6 +158,8 @@ and `collision_maxhullvert`. These exceptions support explicit refinement trials
 physics timing, action/observation mappings and command bounds must still match.
 This is explicitly not exact resume. Old exports without slip settings load with
 zero slip weight; use `--foot-slip-weight -5` to enable it when refining one.
+Likewise, configs predating air time load with zero air-time weight; enable it
+explicitly with `--foot-air-time-weight 2`. New runs default to both terms enabled.
 
 ## Evaluate and inspect behavior
 
@@ -300,6 +308,7 @@ Brax reward scaling is 1. Negative penalties are never clipped to zero.
 | joint-limit violation | summed angle outside target bounds, rad | -1 |
 | nominal posture | summed leg-angle error squares, rad² | -0.05 |
 | foot slip | sum of per-foot load-weighted squared contact tangent speeds, (m/s)² | -5 (new-run default); 0 in selected policy |
+| foot air time | completed unsupported seconds, paid on touchdown during motion commands | +2 (new-run default); 0 in selected policy |
 | termination | physical failure indicator | -2 |
 
 On a physical failure the entire step reward is replaced by `-2 * control_dt`;
@@ -311,9 +320,28 @@ velocity in the contact frame). Each foot's squared tangential speed is averaged
 with normal-force weights, then summed over feet carrying more than 1 N. It is
 active at zero command too; airborne/unloaded feet receive no slip penalty.
 These sensors are reward-only and do not change the 64 policy observations.
-Sensors are omitted when the weight is zero. No clearance or air-time reward is
-enabled. The selected `outputs/op3-policy` predates this penalty; trial evidence
-is recorded separately in `EXPERIMENTS.md`.
+Sensors are omitted when both foot-reward weights are zero. Air time uses the
+same force readings, sampled at the 2 ms physics timestep: a foot is supported
+above 1 N, otherwise it is unsupported. After observing support during a motion
+command, accumulate that foot's unsupported duration and pay it once on landing.
+There is no minimum/target/maximum swing duration, phase, frequency, or foot-height
+target. Equal total completed unsupported time earns equal raw reward, regardless
+of how many steps it is split into. PPO discounting and other rewards still matter.
+
+Motion requires any command component to exceed 5% of its trained bound. Standing
+clears pending air time; resets clear all foot history, and the initial landing
+earns nothing. A fall receives no air-time bonus. A 0.1 s swing earns
+`2 × 0.1 × 0.02 = 0.004` on touchdown. Physics timestep measures duration; the
+common control timestep scales the reward once. Air time means **unsupported**
+time, so evaluate actual sole clearance too: unloading does not guarantee lift.
+No clearance reward is enabled. The selected `outputs/op3-policy` predates both
+foot rewards; trial evidence is recorded separately in `EXPERIMENTS.md`.
+
+Evaluation reports mean/maximum completed unsupported duration per foot and the
+fraction of samples with both feet unsupported, alongside slip and tracking.
+These diagnostics use the 50 Hz saved trajectory; training detects contacts at
+500 Hz, so short contact events can differ. Partial swings at the diagnostic
+window edges are excluded from the duration statistics.
 
 ## Focused checks
 
@@ -322,6 +350,7 @@ uv run ruff check src scripts
 uv run python scripts/check_env.py
 uv run python scripts/check_env.py --gpu --output outputs/checks.json
 uv run python scripts/check_slip_controls.py
+uv run python scripts/check_air_time.py
 # Check a reduced hull profile with the same native/MJX action sequence:
 uv run python scripts/check_env.py --gpu --collision-maxhullvert 8
 ```

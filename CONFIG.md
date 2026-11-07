@@ -159,21 +159,25 @@ refer to the 12 controlled leg joints; effort uses all 20 actuator torques `τ`.
 | `posture` | `sum((q - q₀)²)` in rad² | −0.05 |
 | `termination` | Physical failure indicator | −2.0 |
 | `foot_slip` | Sum over supported feet of `sum(F_n × (v_t1² + v_t2²)) / sum(F_n)`, (m/s)² | 0 in selected policy; **−5.0 code default** |
+| `foot_air_time` | Sum of completed unsupported durations at touchdown, seconds | 0 in selected policy; **+2.0 code default** |
 
 | Tracking width | Value |
 | --- | --- |
 | `sigma_linear` | 0.15 m/s |
 | `sigma_yaw` | 0.4 rad/s |
 | `slip_contact_force` | 1.0 N; require summed foot normal force strictly above this |
+| `air_time_contact_force` | 1.0 N; a foot is supported strictly above this summed normal force |
+| `air_time_command_threshold` | 0.05; require `max(abs(command) / command_max) > 0.05` |
 
 Per-step reward is `control_dt × sum(weight × term)`, with `control_dt=0.02`;
 Brax adds no further scaling (`reward_scaling=1.0`). On physical failure, replace
 the entire reward with `−2 × 0.02 = −0.04`; all other paid terms are zero.
 Time-limit truncation alone does not receive this failure penalty. Reward terms
 are logged separately after weighting and timestep scaling, including
-`reward/foot_slip`. The selected policy has zero slip weight; new runs default
-to −5. Old configuration files lacking this field explicitly load as zero.
-No clearance, air-time or body-height reward is enabled.
+`reward/foot_slip` and `reward/foot_air_time`. The selected policy has both foot
+weights zero; new runs default to −5 slip and +2 air time. Old configuration files
+lacking either field explicitly load that weight as zero. No clearance,
+phase/cadence or body-height reward is enabled.
 
 Slip uses MuJoCo contact sensors matching each original foot box against `floor`:
 four slots per box, two boxes per foot, force and relative linear velocity in
@@ -182,7 +186,25 @@ has 24 values, 96 total, used only for reward and never appended to observations
 The force-weighted squared speed is summed over loaded feet at the last physics
 substep, then weighted and timestep-scaled once. Missing contacts are zero;
 airborne/unloaded feet are excluded. Zero velocity commands do not disable this
-penalty. A zero weight omits the sensors and their runtime cost.
+penalty. Sensors are omitted only when both foot-reward weights are zero.
+
+Air-time history is sampled at every 0.002 s physics substep using the same floor
+force sensors. Each foot must first be supported under a motion command to arm
+its timer; then unsupported samples accrue duration. The next supported sample
+pays that duration and clears the timer, so holding contact does not pay again.
+Touchdowns across the ten substeps are summed and weighted/scaled once at the
+control step. For example, a completed 0.1 s swing pays `2 × 0.1 × 0.02 = 0.004`.
+The physics timestep measures seconds, not an additional reward scaling factor.
+
+There is no target/minimum/maximum swing duration, height target, phase clock,
+frequency target, alternation target or per-step-count bonus. Equal accumulated
+completed air time gives equal raw reward; discounting still favors earlier
+payment. At current bounds, the motion gate opens if `abs(vx)>0.0125` m/s,
+`abs(vy)>0.0075` m/s, or `abs(yaw)>0.04` rad/s. Otherwise both timers and eligibility
+flags clear. Episode resets clear them too, and initial landings are ineligible.
+The usual failure override removes any bonus on a fall. An unfinished swing earns
+nothing at timeout. These two timers and two eligibility flags are reward-only
+state and are not appended to policy observations.
 
 `collision_maxhullvert` accepts −1 or integers ≥4. A positive value caps the
 convex hull of each collision mesh using MuJoCo's compiler, including inactive
@@ -233,6 +255,8 @@ observation, terrain input, or added observation noise.
 | Command magnitude | 60% of trained bounds: `[0.15, 0.09, 0.48]` |
 | Cases | Stand, forward, backward, left, right, left/right yaw, continuous changes |
 | Settled-metric exclusion | First 1 s of each segment, or half if shorter |
+| Air-time diagnostics | Mean/max completed unsupported duration per foot; both-feet-unsupported fraction |
+| Diagnostic contact sampling | 50 Hz, >1 N support; exclude partial swings at window edges |
 
 ## Keyboard command settings
 

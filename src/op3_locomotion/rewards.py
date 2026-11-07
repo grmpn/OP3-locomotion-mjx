@@ -7,6 +7,20 @@ import jax.numpy as jp
 from op3_locomotion.observations import base_motion
 
 
+def update_air_time(air_time, armed, supported, moving, dt):
+    """Pay completed unsupported time once on landing, with no duration target.
+
+    Each foot must first have support under a motion command. Standing clears
+    both histories, so initial landings and standing-to-motion changes cannot
+    cash in uncommanded air time. Called at the physics rate, not the policy rate.
+    """
+    eligible = armed & moving
+    bonus = jp.sum(jp.where(supported & eligible, air_time, 0.0))
+    air_time = jp.where(eligible & ~supported, air_time + dt, 0.0)
+    armed = moving & (armed | supported)
+    return air_time, armed, bonus
+
+
 def foot_slip(contacts, minimum_force):
     """Sum per-foot force-weighted squared contact-point tangential speed.
 
@@ -32,6 +46,7 @@ def reward_terms(
     terminated,
     config,
     slip=0.0,
+    air_time=0.0,
 ):
     gravity, linear, angular = base_motion(data.qpos, data.qvel)
     positions = data.qpos[qpos_indices]
@@ -50,6 +65,7 @@ def reward_terms(
         ),
         "posture": jp.sum(jp.square(positions - nominal[qpos_indices])),
         "foot_slip": jp.asarray(slip),
+        "foot_air_time": jp.asarray(air_time),
         "termination": terminated.astype(jp.float32),
     }
 

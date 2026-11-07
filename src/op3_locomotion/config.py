@@ -25,6 +25,9 @@ class RewardConfig:
     posture: float = -0.05
     foot_slip: float = -5.0
     slip_contact_force: float = 1.0  # N, minimum summed floor load per foot
+    foot_air_time: float = 2.0
+    air_time_contact_force: float = 1.0  # N, supported above this floor load
+    air_time_command_threshold: float = 0.05  # fraction of each trained command bound
     termination: float = -2.0
     sigma_linear: float = 0.15  # m/s
     sigma_yaw: float = 0.4  # rad/s
@@ -58,6 +61,12 @@ class EnvConfig:
             raise ValueError("collision_maxhullvert must be -1 or at least 4")
         if self.reward.foot_slip > 0 or self.reward.slip_contact_force <= 0:
             raise ValueError("foot_slip must be nonpositive and slip_contact_force positive")
+        if (
+            not 0 <= self.reward.foot_air_time < float("inf")
+            or not 0 < self.reward.air_time_contact_force < float("inf")
+            or not 0 <= self.reward.air_time_command_threshold < 1
+        ):
+            raise ValueError("Invalid air-time weight, support force or command threshold")
         if self.physics_dt <= 0 or self.control_dt < self.physics_dt:
             raise ValueError("Require 0 < physics_dt <= control_dt")
         if abs(self.action_repeat * self.physics_dt - self.control_dt) > 1e-8:
@@ -130,8 +139,9 @@ class Config:
     def load(cls, path: Path) -> "Config":
         value = json.loads(path.read_text())
         env = value["env"]
-        # Older exports predate this reward; preserve their original objective.
+        # Older exports predate these rewards; preserve their original objective.
         env["reward"].setdefault("foot_slip", 0.0)
+        env["reward"].setdefault("foot_air_time", 0.0)
         env["reward"] = RewardConfig(**env["reward"])
         env["command_max"] = tuple(env["command_max"])
         ppo = value["ppo"]

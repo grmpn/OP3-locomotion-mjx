@@ -24,6 +24,7 @@ def main():
     parser.add_argument("--assets", type=Path)
     parser.add_argument("--command-sampling", choices=("uniform", "balanced"))
     parser.add_argument("--foot-slip-weight", type=float)
+    parser.add_argument("--foot-air-time-weight", type=float)
     parser.add_argument("--collision-maxhullvert", type=int)
     parser.add_argument(
         "--initialize-from",
@@ -56,6 +57,14 @@ def main():
             config,
             env=replace(
                 config.env, reward=replace(config.env.reward, foot_slip=args.foot_slip_weight)
+            ),
+        )
+    if args.foot_air_time_weight is not None:
+        config = replace(
+            config,
+            env=replace(
+                config.env,
+                reward=replace(config.env.reward, foot_air_time=args.foot_air_time_weight),
             ),
         )
     if args.collision_maxhullvert is not None:
