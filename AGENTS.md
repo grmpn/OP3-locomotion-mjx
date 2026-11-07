@@ -44,6 +44,7 @@ structure; create files as they become necessary, without empty scaffolding.
 pyproject.toml
 uv.lock
 README.md
+CONFIG.md                 # Current hyperparameters, reward terms, and observations
 AGENTS.md
 src/op3_locomotion/
     __init__.py
@@ -155,3 +156,10 @@ reward terms are scaled by the control timestep and avoid double scaling.
   files. Do not commit generated runs, caches, or unrelated user changes.
 - Keep the README aligned with supported setup, training, checkpoint, and
   keyboard-control workflows as implementation progresses.
+- Update `CONFIG.md` in the same change whenever settings change, including
+  training hyperparameters, environment/control settings, network or normalization
+  settings, reward terms/weights/widths, and observation contents/order/scales.
+  Include hard-coded settings and relevant dependency defaults. Keep current
+  run/policy overrides distinct from code defaults; refresh the current values
+  when adopting a different run configuration or selected policy. Keep this file
+  a settings reference; put experiment rationale and results in `EXPERIMENTS.md`.
