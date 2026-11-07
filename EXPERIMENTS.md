@@ -18,7 +18,7 @@ recorded event timestamp are marked as backfilled rather than assigned one.
 | `smoke` | 2026-11-06, before 23:54 | Initial newest-package dependency set | Failed before PPO updates: removed JAX replication API |
 | `smoke-compatible` | 2026-11-06 23:54:54 | Seed 0; 32 envs; batch 16 × 2; 640 control steps | PPO update, export/reload, rendering, and viewer checks passed; not a walking policy |
 | `baseline` | 2026-11-06 23:58:58 | Seed 0; 512 envs; batch 128 × 4; uniform combined commands plus 20% standing; 30M requested steps | Intentionally stopped; last saved checkpoint 16,056,320; selected evaluated checkpoint 15,052,800 for refinement |
-| `balanced` | 2026-11-07 00:17:06 | Weights/normalization from baseline 15,052,800; seed 0; same PPO/physics/rewards; balanced command modes; 15M requested additional steps | Running; evaluated through 5,017,600 additional steps |
+| `balanced` | 2026-11-07 00:17:06 | Weights/normalization from baseline 15,052,800; seed 0; same PPO/physics/rewards; balanced command modes; 15M requested additional steps | Running; full suite at 5,017,600; longer turn/stand tests at 9,031,680 additional steps |
 
 Run settings are in `outputs/<run>/config.json`, provenance in `run.json`, and
 training/evaluation aggregates in `metrics.jsonl`. The baseline start revision is
@@ -240,3 +240,18 @@ shaping or declare the run stuck. The comparison is still a single training
 lineage with additional optimization, not an isolated command-sampler ablation.
 Final acceptance remains unproven until sustained turning and longer rollouts
 are checked.
+
+## D012 Sustained left turns in the longer test
+
+**2026-11-07 00:29 UTC.** Test refinement checkpoint `000009031680` for ten seconds
+each at zero command and both in-place turn directions. All survived. Left turn
+settles at +0.457 rad/s for +0.48 requested, with repeated foot lift/landing and
+mean contact slip about 0.0016/0.0107 m/s for the two feet. Standing settled planar
+velocity is approximately `[0.0000, -0.0008]` m/s and yaw +0.0016 rad/s. Right
+turn still undershoots: settled −0.285 rad/s for −0.48 requested.
+
+**Decision:** retain the current rewards and physics while the planned refinement
+finishes. Left-turn behavior is no longer stationary; evaluate the final
+checkpoints across all directions and longer transitions before selecting the
+demo policy. No reward-weight or gait-shaping change is justified by this result
+alone. Evidence: `outputs/balanced-turns-9m/report.json`.
