@@ -25,6 +25,10 @@ def main():
     parser.add_argument("--command-sampling", choices=("uniform", "balanced"))
     parser.add_argument("--foot-slip-weight", type=float)
     parser.add_argument("--foot-air-time-weight", type=float)
+    parser.add_argument(
+        "--standing-posture-weight", type=float, help="Additional zero-command penalty"
+    )
+    parser.add_argument("--lift-reset-probability", type=float)
     parser.add_argument("--collision-maxhullvert", type=int)
     parser.add_argument(
         "--initialize-from",
@@ -70,6 +74,18 @@ def main():
     if args.collision_maxhullvert is not None:
         config = replace(
             config, env=replace(config.env, collision_maxhullvert=args.collision_maxhullvert)
+        )
+    if args.standing_posture_weight is not None:
+        config = replace(
+            config,
+            env=replace(
+                config.env,
+                reward=replace(config.env.reward, standing_posture=args.standing_posture_weight),
+            ),
+        )
+    if args.lift_reset_probability is not None:
+        config = replace(
+            config, env=replace(config.env, lift_reset_probability=args.lift_reset_probability)
         )
     try:
         devices = jax.devices("gpu")

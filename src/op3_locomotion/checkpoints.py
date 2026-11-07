@@ -109,15 +109,22 @@ def validate_warm_start(path: Path, config: Config, mapping: dict):
     path = resolve_export(path)
     previous = Config.load(path / "run_config.json")
     previous_env, next_env = asdict(previous.env), asdict(config.env)
-    # Explicit experiment settings may change the objective and hull approximation.
+    # Explicit experiments may change rewards, hull approximation and reset distribution.
     # Observation/action meaning, bounds, timing and other physics remain strict.
-    for name in ("command_sampling", "reward", "collision_maxhullvert"):
+    for name in (
+        "command_sampling",
+        "reward",
+        "collision_maxhullvert",
+        "lift_reset_probability",
+        "lift_reset_knee_flexion",
+        "lift_reset_hip_roll",
+    ):
         previous_env.pop(name)
         next_env.pop(name)
     if previous_env != next_env or previous.ppo.hidden_sizes != config.ppo.hidden_sizes:
         raise ValueError(
             "Warm start requires identical environment/network settings except "
-            "command_sampling, reward and collision_maxhullvert"
+            "command_sampling, reward, collision_maxhullvert and raised-foot reset settings"
         )
     previous_mapping = json.loads((path / "mapping.json").read_text())
     previous_mapping["collision_maxhullvert"] = mapping["collision_maxhullvert"]

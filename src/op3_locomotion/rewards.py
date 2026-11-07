@@ -50,6 +50,7 @@ def reward_terms(
 ):
     gravity, linear, angular = base_motion(data.qpos, data.qvel)
     positions = data.qpos[qpos_indices]
+    posture = jp.sum(jp.square(positions - nominal[qpos_indices]))
     return {
         "linear_tracking": jp.exp(
             -jp.sum(jp.square(linear[:2] - command[:2])) / config.sigma_linear**2
@@ -63,7 +64,8 @@ def reward_terms(
         "joint_limits": jp.sum(
             jp.maximum(lower - positions, 0.0) + jp.maximum(positions - upper, 0.0)
         ),
-        "posture": jp.sum(jp.square(positions - nominal[qpos_indices])),
+        "posture": posture,
+        "standing_posture": jp.where(jp.all(command == 0), posture, 0.0),
         "foot_slip": jp.asarray(slip),
         "foot_air_time": jp.asarray(air_time),
         "termination": terminated.astype(jp.float32),

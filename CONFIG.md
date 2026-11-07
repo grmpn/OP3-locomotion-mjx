@@ -84,6 +84,9 @@ Explicit trainer settings and effective defaults from locked Brax 0.14.2/Optax:
 | `command_seconds` / `command_steps` | 3 s / 150 control steps | — |
 | `command_max` | `[0.25, 0.15, 0.8]`; symmetric bounds in m/s, m/s, rad/s | — |
 | `standing_probability` | 0.2 | — |
+| `lift_reset_probability` | 0.0 (fixed standing reset) | — |
+| `lift_reset_knee_flexion` | 0.45 rad extra knee flexion in optional raised pose | — |
+| `lift_reset_hip_roll` | 0.15 rad magnitude in optional raised pose | — |
 | `command_sampling` | `balanced` | `uniform` |
 | `action_scale` | 0.5 rad per normalized action unit | — |
 | `min_height` | 0.18 m base height | — |
@@ -114,6 +117,21 @@ active components are uniform within their signed bounds. Uniform sampling uses
 | Warp `njmax` | 256 constraint rows per environment |
 | `XLA_PYTHON_CLIENT_MEM_FRACTION` | 0.35 unless overridden in the environment |
 | `XLA_PYTHON_CLIENT_PREALLOCATE` | `false` unless overridden in the environment |
+
+Optional raised-foot resets select nominal standing with probability `1-p`,
+left raised with `p/2`, or right raised with `p/2`. The choice uses a separate
+`fold_in(reset_key, 0x4C494654)` stream; command and PPO streams are unchanged.
+The poses are precomputed once on the host and selected as fixed-shape MJX data
+inside reset. No rollout IK or physics-parameter randomization is used.
+
+For left raised, add −0.225 rad at left hip pitch, +0.45 at left knee, +0.225 at
+left ankle pitch; add −0.15 at both hip rolls and both ankle rolls. For right
+raised, mirror the side and all signs. Lower the base to put the lowest sole
+0.0005 m above the original floor; the lifted sole starts about 0.020094 m high.
+Base orientation, x/y position and all velocities retain their nominal values;
+initial actuator targets match the chosen pose. Previous action and air-time
+history are zero. Nominal observation offsets and action targets still refer to
+the original standing pose. The initial raised-foot landing earns no air reward.
 
 ### Actions and nominal pose
 
@@ -157,6 +175,7 @@ refer to the 12 controlled leg joints; effort uses all 20 actuator torques `τ`.
 | `action_rate` | `sum((a - previous_action)²)` | −0.02 |
 | `joint_limits` | `sum(max(lower - q, 0) + max(q - upper, 0))` in rad | −1.0 |
 | `posture` | `sum((q - q₀)²)` in rad² | −0.05 |
+| `standing_posture` | Same posture error, only when all three requested velocities equal zero | 0; optional additional penalty |
 | `termination` | Physical failure indicator | −2.0 |
 | `foot_slip` | Sum over supported feet of `sum(F_n × (v_t1² + v_t2²)) / sum(F_n)`, (m/s)² | 0 in selected policy; **−5.0 code default** |
 | `foot_air_time` | Sum of completed unsupported durations at touchdown, seconds | 0 in selected policy; **+2.0 code default** |
@@ -257,6 +276,8 @@ observation, terrain input, or added observation noise.
 | Settled-metric exclusion | First 1 s of each segment, or half if shorter |
 | Air-time diagnostics | Mean/max completed unsupported duration per foot; both-feet-unsupported fraction |
 | Diagnostic contact sampling | 50 Hz, >1 N support; exclude partial swings at window edges |
+| `--reset-pose` | `standing` default; `left` / `right` force the corresponding raised foot |
+| Posture diagnostic | Mean summed squared 12-leg-joint deviation from nominal, rad², over the case |
 
 ## Keyboard command settings
 
@@ -310,3 +331,23 @@ are +2 and 0 respectively; support threshold is 1 N and command threshold 0.05.
 All other settings match the slip source. Standalone evaluation uses native
 MuJoCo, seed 123, 10 s per segment and all eight command cases. These experimental
 exports are separate from the selected demo; results belong in `EXPERIMENTS.md`.
+
+## Standing-posture and raised-reset trials (2026-11-07)
+
+All three runs initialize from `outputs/air-time-2` checkpoint `000001003520`,
+retaining slip −5, air time +2, original hulls, balanced commands, seed 0,
+512 training/32 evaluation environments and all source PPO settings. Each requests
+1,000,000 transitions with three evaluations; optimizer/RNG/step count restart.
+
+| Run under `outputs/` | Additional standing posture weight | Raised-reset probability |
+| --- | ---: | ---: |
+| `standing-lift-control` | 0 | 0 |
+| `standing-posture-10x` | −0.45 | 0 |
+| `lift-reset-25` | 0 | 0.25 |
+
+The posture trial's total coefficient is −0.5 at exactly zero requested velocity
+and −0.05 otherwise. Raised poses use the 0.45 rad knee and 0.15 rad roll offsets
+above, with equal left/right selection. Both features remain disabled by default.
+Standalone evaluations use 10 s per segment and all eight standard cases from
+standing; separate left/right raised-start checks measure recovery. The selected
+demo remains `outputs/op3-policy`.

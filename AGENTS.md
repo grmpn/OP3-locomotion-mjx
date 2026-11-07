@@ -12,7 +12,10 @@ velocity.
   terrain generation, or a terrain curriculum.
 - Do not implement domain randomization: no randomized physics, masses,
   friction, actuator properties, external pushes, sensor noise, or delays.
-  Start from a fixed, valid standing configuration without reset perturbations.
+  Default to a fixed, valid standing configuration without reset perturbations.
+  The explicitly requested raised-foot reset experiment may sample standing,
+  left-foot-raised and right-foot-raised poses with a separate seeded stream.
+  Keep this optional; it does not authorize other physical randomization.
 - Sampling velocity commands and stochastic PPO exploration are allowed. Keep
   them seeded and separate from physical environment parameters.
 - Keep the baseline small and understandable. Avoid custom RL algorithms,

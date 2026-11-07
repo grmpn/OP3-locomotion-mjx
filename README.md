@@ -5,6 +5,8 @@ standard PPO trainer. Experiment decisions, evidence, and run lineage are record
 in [EXPERIMENTS.md](EXPERIMENTS.md). The native MuJoCo demo loads exported policy parameters and
 accepts body-frame velocity commands from the keyboard. There is no domain
 randomization, terrain generation, reset noise, or gait generator.
+An optional experiment samples predefined standing or left/right raised-foot
+reset poses; the default and selected demo still start standing.
 
 The selected trained policy is available locally in `outputs/op3-policy/`, with
 its source lineage in `training_lineage.json`. Launch it from the repository root:
@@ -154,7 +156,8 @@ training-state checkpoints**: optimizer state and rollout/RNG state are not
 saved. `--initialize-from outputs/baseline` starts a new run from saved weights
 and normalization, resetting the optimizer, RNG and step count. It requires the
 same environment/network configuration except `command_sampling`, reward settings,
-and `collision_maxhullvert`. These exceptions support explicit refinement trials;
+`collision_maxhullvert`, and raised-foot reset settings. These exceptions support
+explicit refinement trials;
 physics timing, action/observation mappings and command bounds must still match.
 This is explicitly not exact resume. Old exports without slip settings load with
 zero slip weight; use `--foot-slip-weight -5` to enable it when refining one.
@@ -166,6 +169,34 @@ survived the full command suite. It did not improve swing duration or overall
 tracking against a matched zero-weight control; see D021 in `EXPERIMENTS.md`.
 Run it with `uv run op3-play outputs/air-time-2`. The selected demo remains
 `outputs/op3-policy`.
+
+Two independent standing/exploration experiments can start from the air-time
+checkpoint, with one shared control. Both options default to zero (disabled):
+
+```sh
+# 10x total posture penalty at zero requested velocity: -0.05 - 0.45 = -0.5.
+uv run op3-train --config outputs/air-time-2/config.json \
+  --initialize-from outputs/air-time-2 --output outputs/standing-posture-10x \
+  --standing-posture-weight -0.45 --num-timesteps 1000000 --num-evals 3
+
+# 75% standing, 12.5% left raised and 12.5% right raised; original posture weight.
+uv run op3-train --config outputs/air-time-2/config.json \
+  --initialize-from outputs/air-time-2 --output outputs/lift-reset-25 \
+  --lift-reset-probability 0.25 --num-timesteps 1000000 --num-evals 3
+
+# Matched continuation without either change.
+uv run op3-train --config outputs/air-time-2/config.json \
+  --initialize-from outputs/air-time-2 --output outputs/standing-lift-control \
+  --num-timesteps 1000000 --num-evals 3
+```
+
+The extra posture term applies only when `[vx, vy, yaw_rate]` is exactly zero,
+regardless of the policy's joint actions. It does not increase the moving penalty.
+Raised resets use fixed mirrored joint poses with about 2 cm sole clearance,
+zero velocities, and a separate seeded pose-choice stream. Physics parameters,
+nominal action targets and policy inputs are unchanged. Initial landings earn
+no air-time bonus. These starts expose single-foot support and recovery; useful
+lifting must still be checked from an ordinary standing start.
 
 ## Evaluate and inspect behavior
 
@@ -199,6 +230,13 @@ are necessary to distinguish stepping from sliding; foot-height variation alone
 does not prove a walking gait.
 
 Evaluation stops a case on a fall rather than resetting and hiding failures.
+
+Evaluation and play default to the fixed standing start even for policies trained
+with mixed resets. Use `--reset-pose left` or `--reset-pose right` to inspect
+recovery from a raised foot, for example
+`uv run op3-play outputs/lift-reset-25 --reset-pose left`. R repeats that selected
+pose. Save forced-pose evaluations to separate `--output` directories. Reports
+include the chosen start pose and mean summed squared leg-posture error in rad².
 The `changes` case preserves physical state across command updates. Native
 MuJoCo evaluation uses CPU policy inference; `--physics mjx` uses the training
 physics backend on GPU. Reports are stored alongside the selected checkpoint,
@@ -226,7 +264,7 @@ the requested velocity toward its trained bound; release it to decay to zero:
 | A / D | ramp left / right velocity |
 | Q / E | ramp left / right yaw rate |
 | Space | zero all commands |
-| R | fixed standing reset and zero command |
+| R | reset to the selected start pose and zero command |
 | Escape | exit |
 
 Ramping from zero to a bound takes 0.5 s; release from a bound takes 0.35 s to
@@ -313,6 +351,7 @@ Brax reward scaling is 1. Negative penalties are never clipped to zero.
 | action change | summed squared action differences | -0.02 |
 | joint-limit violation | summed angle outside target bounds, rad | -1 |
 | nominal posture | summed leg-angle error squares, rad² | -0.05 |
+| extra standing posture | same error only at exactly zero requested velocity | 0; optional negative weight |
 | foot slip | sum of per-foot load-weighted squared contact tangent speeds, (m/s)² | -5 (new-run default); 0 in selected policy |
 | foot air time | completed unsupported seconds, paid on touchdown during motion commands | +2 (new-run default); 0 in selected policy |
 | termination | physical failure indicator | -2 |
@@ -357,6 +396,7 @@ uv run python scripts/check_env.py
 uv run python scripts/check_env.py --gpu --output outputs/checks.json
 uv run python scripts/check_slip_controls.py
 uv run python scripts/check_air_time.py
+uv run python scripts/check_standing_resets.py --gpu
 # Check a reduced hull profile with the same native/MJX action sequence:
 uv run python scripts/check_env.py --gpu --collision-maxhullvert 8
 ```

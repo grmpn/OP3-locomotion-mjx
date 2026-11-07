@@ -23,13 +23,14 @@ def position_targets(action, nominal_ctrl, actuator_indices, lower, upper, scale
 class PolicySimulation:
     """Deterministic inference with identical observations, targets, and control timing."""
 
-    def __init__(self, env, policy, physics="native", seed=0, nominal=False):
+    def __init__(self, env, policy, physics="native", seed=0, nominal=False, reset_pose="standing"):
         import jax
         import mujoco
 
         self.env, self.policy, self.physics = env, policy, physics
         self.key = jax.random.PRNGKey(seed)
         self.nominal = nominal
+        self.reset_index = ("standing", "left", "right").index(reset_pose)
         self.data = mujoco.MjData(env.model)
         from op3_locomotion.observations import observe
 
@@ -37,7 +38,9 @@ class PolicySimulation:
             lambda q, v, c, a: observe(q, v, env.nominal, env.qpos_indices, env.qvel_indices, c, a)
         )
         self._targets = jax.jit(env.targets)
-        self._reset = jax.jit(env.reset) if physics == "mjx" else None
+        self._reset = (
+            jax.jit(lambda key: env.reset(key, self.reset_index)) if physics == "mjx" else None
+        )
         self._step = jax.jit(env.step) if physics == "mjx" else None
         self.reset()
 
@@ -50,8 +53,8 @@ class PolicySimulation:
         if self.physics == "mjx":
             self.state = self._reset(self.key)
         mujoco.mj_resetData(self.env.model, self.data)
-        self.data.qpos[:] = np.asarray(self.env.nominal)
-        self.data.ctrl[:] = np.asarray(self.env.nominal_ctrl)
+        self.data.qpos[:] = np.asarray(self.env.reset_qpos[self.reset_index])
+        self.data.ctrl[:] = np.asarray(self.env.reset_ctrl[self.reset_index])
         mujoco.mj_forward(self.env.model, self.data)
 
     def step(self, command):

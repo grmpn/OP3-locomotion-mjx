@@ -135,6 +135,7 @@ def main():
         "--nominal", action="store_true", help="Compare fixed standing targets without policy"
     )
     parser.add_argument("--seed", type=int, default=123)
+    parser.add_argument("--reset-pose", choices=("standing", "left", "right"), default="standing")
     parser.add_argument("--assets", type=Path)
     args = parser.parse_args()
     if args.seconds <= 0:
@@ -144,7 +145,9 @@ def main():
     policy, config, mapping, path = load_export(args.checkpoint)
     env = OP3Env(config.env, args.assets, build_mjx=args.physics == "mjx")
     validate_mapping(mapping, env.mapping())
-    simulation = PolicySimulation(env, policy, args.physics, args.seed, args.nominal)
+    simulation = PolicySimulation(
+        env, policy, args.physics, args.seed, args.nominal, args.reset_pose
+    )
     output = args.output or path / (
         "nominal-evaluation" if args.nominal else f"evaluation-{args.physics}"
     )
@@ -256,6 +259,14 @@ def main():
                 "foot_height_range": np.ptp(trace["feet_z"], axis=0).tolist(),
                 "maximum_contacts": int(trace["contacts"].max()),
                 "gait": gait_summary(trace, env.dt),
+                "mean_leg_posture_error": float(
+                    np.square(
+                        trace["qpos"][:, np.asarray(env.controlled_qpos)]
+                        - np.asarray(env.nominal)[np.asarray(env.controlled_qpos)]
+                    )
+                    .sum(axis=1)
+                    .mean()
+                ),
                 "segments": segments,
             }
             print(case, json.dumps(results[case]), flush=True)
@@ -267,6 +278,7 @@ def main():
         "physics": args.physics,
         "nominal": args.nominal,
         "seed": args.seed,
+        "reset_pose": args.reset_pose,
         "wall_seconds": time.monotonic() - started,
         "cases": results,
     }

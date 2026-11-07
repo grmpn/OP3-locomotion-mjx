@@ -23,6 +23,7 @@ class RewardConfig:
     action_rate: float = -0.02
     joint_limits: float = -1.0
     posture: float = -0.05
+    standing_posture: float = 0.0  # additional penalty at exactly zero velocity command
     foot_slip: float = -5.0
     slip_contact_force: float = 1.0  # N, minimum summed floor load per foot
     foot_air_time: float = 2.0
@@ -45,6 +46,9 @@ class EnvConfig:
     command_max: tuple[float, float, float] = (0.25, 0.15, 0.8)
     standing_probability: float = 0.2
     command_sampling: str = "uniform"
+    lift_reset_probability: float = 0.0
+    lift_reset_knee_flexion: float = 0.45  # rad added to lifted knee; half at hip/ankle
+    lift_reset_hip_roll: float = 0.15  # rad, both legs lean toward the supporting foot
     action_scale: float = 0.5  # radians
     min_height: float = 0.18
     min_up_cosine: float = 0.5
@@ -77,6 +81,19 @@ class EnvConfig:
             raise ValueError("command_max must contain three positive bounds")
         if not 0 <= self.standing_probability <= 1 or self.action_scale <= 0:
             raise ValueError("Invalid standing probability or action scale")
+        if not -float("inf") < self.reward.standing_posture <= 0:
+            raise ValueError("standing_posture must be finite and nonpositive")
+        if (
+            not 0 <= self.lift_reset_probability <= 1
+            or not 0 < self.lift_reset_knee_flexion < float("inf")
+            or not 0 <= self.lift_reset_hip_roll < float("inf")
+        ):
+            raise ValueError("Invalid raised-foot reset probability or joint offsets")
+        if (
+            self.lift_reset_probability
+            and max(self.lift_reset_knee_flexion, self.lift_reset_hip_roll) > self.action_scale
+        ):
+            raise ValueError("Raised-foot reset offsets must fit the policy action range")
 
     @property
     def action_repeat(self) -> int:

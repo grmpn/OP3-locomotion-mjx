@@ -161,8 +161,39 @@ class OP3Env(Env):
         mujoco.mj_forward(m, d)
         self.nominal = jp.array(d.qpos)
         self.nominal_ctrl = jp.array(d.ctrl)
+        reset_data = [d]
+        for side, direction in (("l", -1), ("r", 1)):
+            lifted = mujoco.MjData(m)
+            lifted.qpos[:] = d.qpos
+            offsets = {
+                f"{leg}_{joint}": direction * config.lift_reset_hip_roll
+                for leg in ("l", "r")
+                for joint in ("hip_roll", "ank_roll")
+            }
+            offsets.update(
+                {
+                    f"{side}_hip_pitch": direction * config.lift_reset_knee_flexion / 2,
+                    f"{side}_knee": -direction * config.lift_reset_knee_flexion,
+                    f"{side}_ank_pitch": -direction * config.lift_reset_knee_flexion / 2,
+                }
+            )
+            for name, offset in offsets.items():
+                lifted.qpos[m.joint(name).qposadr[0]] += offset
+            mujoco.mj_forward(m, lifted)
+            lowest = min(
+                lifted.geom_xpos[i, 2]
+                - np.abs(lifted.geom_xmat[i].reshape(3, 3)[2]) @ m.geom_size[i]
+                for i in feet
+            )
+            lifted.qpos[2] += 0.0005 - lowest
+            lifted.ctrl[:] = lifted.qpos[np.asarray(self.qpos_indices)]
+            mujoco.mj_forward(m, lifted)
+            reset_data.append(lifted)
+        self.reset_qpos = jp.array(np.stack([value.qpos for value in reset_data]))
+        self.reset_ctrl = jp.array(np.stack([value.ctrl for value in reset_data]))
         self.mjx_model = None
         self.initial_data = None
+        self.reset_data = None
         if build_mjx:
             kwargs = {}
             buffers = {}
@@ -174,7 +205,11 @@ class OP3Env(Env):
                     naconmax=64 * batch_capacity, naccdmax=64 * batch_capacity, njmax=256
                 )
             self.mjx_model = mjx.put_model(m, impl=config.physics_backend, **kwargs)
-            self.initial_data = mjx.put_data(m, d, impl=config.physics_backend, **buffers)
+            self.reset_data = tuple(
+                mjx.put_data(m, value, impl=config.physics_backend, **buffers)
+                for value in reset_data
+            )
+            self.initial_data = self.reset_data[0]
 
     @property
     def observation_size(self):
@@ -240,11 +275,25 @@ class OP3Env(Env):
             info=info, obs=self.observation(state.pipeline_state, command, info["previous_action"])
         )
 
-    def reset(self, rng):
+    def sample_reset_index(self, rng):
+        # A separate derived stream preserves the existing command/PPO RNG sequence.
+        choose, side = jax.random.split(jax.random.fold_in(rng, 0x4C494654))
+        return jp.where(
+            jax.random.uniform(choose) < self.config.lift_reset_probability,
+            jax.random.randint(side, (), 1, 3),
+            0,
+        )
+
+    def reset(self, rng, reset_index=None):
+        if reset_index is None:
+            reset_index = self.sample_reset_index(rng) if self.config.lift_reset_probability else 0
         rng, command_key = jax.random.split(rng)
         command = self.sample_command(command_key)
         action = jp.zeros(self.action_size)
+        # Data.where preserves Warp's shared contact buffers while selecting per-world state.
         data = self.initial_data
+        for index, pose in enumerate(self.reset_data[1:], 1):
+            data = data.where(reset_index == index, pose)
         terms = reward_terms(
             data,
             command,
