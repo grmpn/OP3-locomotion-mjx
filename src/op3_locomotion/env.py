@@ -153,8 +153,14 @@ class OP3Env(Env):
 
     def sample_command(self, key):
         velocity_key, standing_key = jax.random.split(key)
+        if self.config.command_sampling == "balanced":
+            velocity_key, mode_key = jax.random.split(velocity_key)
         command = jax.random.uniform(velocity_key, (3,), minval=-1.0, maxval=1.0)
         command *= jp.array(self.config.command_max)
+        if self.config.command_sampling == "balanced":
+            # Equal non-standing coverage of forward/backward, lateral, yaw, and combined motion.
+            masks = jp.array([[1, 0, 0], [0, 1, 0], [0, 0, 1], [1, 1, 1]])
+            command *= masks[jax.random.randint(mode_key, (), 0, 4)]
         return jp.where(
             jax.random.uniform(standing_key) < self.config.standing_probability,
             jp.zeros(3),

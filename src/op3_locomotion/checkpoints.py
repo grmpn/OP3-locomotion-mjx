@@ -107,10 +107,14 @@ def validate_mapping(expected: dict, actual: dict):
 def validate_warm_start(path: Path, config: Config, mapping: dict):
     path = resolve_export(path)
     previous = Config.load(path / "run_config.json")
-    if (
-        asdict(previous.env) != asdict(config.env)
-        or previous.ppo.hidden_sizes != config.ppo.hidden_sizes
-    ):
-        raise ValueError("Warm start requires identical environment and network settings")
+    previous_env, next_env = asdict(previous.env), asdict(config.env)
+    # Command distribution can change without changing physics, observation units,
+    # action meaning, or trained command bounds. Everything else remains strict.
+    previous_env.pop("command_sampling")
+    next_env.pop("command_sampling")
+    if previous_env != next_env or previous.ppo.hidden_sizes != config.ppo.hidden_sizes:
+        raise ValueError(
+            "Warm start requires identical environment/network settings except command_sampling"
+        )
     validate_mapping(json.loads((path / "mapping.json").read_text()), mapping)
     return checkpoint.load(str(path))

@@ -96,7 +96,8 @@ nominal pose, bounds, and control timing. **These are policy exports, not full
 training-state checkpoints**: optimizer state and rollout/RNG state are not
 saved. `--initialize-from outputs/baseline` starts a new run from saved weights
 and normalization, resetting the optimizer, RNG and step count. It requires the
-same environment/network configuration; this is explicitly not exact resume.
+same environment/network configuration except `command_sampling`; this is
+explicitly not exact resume.
 
 ## Evaluate and inspect behavior
 
@@ -166,6 +167,12 @@ Body axes are +x forward, +y left, +z up; positive yaw is counterclockwise from
 above. Commands are `[vx, vy, yaw_rate]` in m/s, m/s, rad/s, bounded by
 `[0.25, 0.15, 0.8]` in each direction. Training samples all components uniformly,
 with a 20% probability of exactly zero command, every 3 seconds and at reset.
+`--command-sampling balanced` instead divides non-standing commands equally
+between forward/backward-only, lateral-only, yaw-only, and combined motion.
+This provides direct training coverage for individual keyboard commands. With
+20% standing probability, each of the five command modes occurs 20% of the time.
+The default `uniform` distribution is retained for the initial baseline; the
+sampling choice is saved in the resolved config and may change during a warm start.
 Physics always starts from the same pose with zero velocity; the PRNG never
 changes physical environment parameters.
 

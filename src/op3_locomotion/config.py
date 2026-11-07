@@ -38,12 +38,15 @@ class EnvConfig:
     command_seconds: float = 3.0
     command_max: tuple[float, float, float] = (0.25, 0.15, 0.8)
     standing_probability: float = 0.2
+    command_sampling: str = "uniform"
     action_scale: float = 0.5  # radians
     min_height: float = 0.18
     min_up_cosine: float = 0.5
     reward: RewardConfig = field(default_factory=RewardConfig)
 
     def __post_init__(self):
+        if self.command_sampling not in ("uniform", "balanced"):
+            raise ValueError("command_sampling must be uniform or balanced")
         if self.physics_backend not in ("jax", "warp"):
             raise ValueError("physics_backend must be jax or warp")
         if self.collision_profile not in ("full", "locomotion"):

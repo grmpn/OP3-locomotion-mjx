@@ -22,6 +22,7 @@ def main():
     parser.add_argument("--config", type=Path)
     parser.add_argument("--output", type=Path)
     parser.add_argument("--assets", type=Path)
+    parser.add_argument("--command-sampling", choices=("uniform", "balanced"))
     parser.add_argument(
         "--initialize-from",
         type=Path,
@@ -46,6 +47,8 @@ def main():
         if hasattr(args, name) and getattr(args, name) is not None
     }
     config = replace(config, ppo=replace(config.ppo, **updates))
+    if args.command_sampling:
+        config = replace(config, env=replace(config.env, command_sampling=args.command_sampling))
     try:
         devices = jax.devices("gpu")
     except RuntimeError as error:
