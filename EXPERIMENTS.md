@@ -896,3 +896,25 @@ reload, native actor-only inference, sole-height geometry, command-independent
 timers, same-action reward parity and batched timeout/reset parity. Logs:
 `outputs/asymmetric-checks-{cpu,gpu}.log`. GPU reward comparisons allow float32
 roundoff; no reward formulas or weights were changed by the critic feature.
+
+### Interrupted run and continuation
+
+**2026-11-08 00:55 UTC.** At the user's request, continue the interrupted
+asymmetric-critic run. The original run stopped at 2,969,600 logged transitions;
+its latest complete export is 2,007,040. The 962,560 subsequent transitions were
+not saved. `outputs/asymmetric-critic/stopped.json` records the interruption.
+Only policy/critic weights and observation normalization were exported, so the
+continuation necessarily restarts optimizer, RNG and local step count.
+
+Launch `outputs/asymmetric-critic-continued` from that exact export and the
+original saved configuration. Request the remaining 27,992,960 transitions with
+15 evaluations (initial plus 14 epochs), retaining the original 2,007,040-step
+evaluation/export cadence. Brax rounds this to 28,098,560 new transitions and
+30,105,600 total saved asymmetric-critic transitions. The original baseline
+warm-start lineage is unchanged; no rewards, networks, physics or commands change.
+
+The detached GPU process writes `outputs/asymmetric-critic-continued.log` and
+the usual run artifacts. Launch metadata is in
+`outputs/asymmetric-critic-continued-launch.json`. Completion requires its
+`finished.json`; report the final `eval/episode_reward` and the new play command
+when complete. No post-training behavior suite is requested.

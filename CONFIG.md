@@ -431,3 +431,18 @@ environments, 16 evaluations, 30,000,000 requested additional transitions.
 Both MLPs remain 128×128×128; actor input size 64, critic input size 70.
 Other PPO, physics, command, reward and normalization settings are identical to
 `configs/upright_air_time.json`. The selected demo remains `outputs/op3-policy`.
+
+### Current continuation (2026-11-08 UTC)
+
+Run directory: `outputs/asymmetric-critic-continued`. Load the saved configuration
+from `outputs/asymmetric-critic/config.json` and warm-start actor, critic and both
+observation-normalization branches from
+`outputs/asymmetric-critic/checkpoints/000002007040`. Optimizer, RNG and local
+step count restart; this is not a full training-state resume.
+
+Override only `num_timesteps=27_992_960` and `num_evals=15` (initial evaluation
+plus 14 training epochs). This preserves the original 2,007,040-transition
+evaluation/export interval after Brax rounds to complete batches. Expected
+completion is 28,098,560 new transitions, or 30,105,600 including the saved
+2,007,040 asymmetric-critic transitions. All other run settings above remain
+unchanged, including seed 0. Continuation exports use the new local step count.

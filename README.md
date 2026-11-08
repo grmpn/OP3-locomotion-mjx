@@ -432,6 +432,23 @@ restart. Native play requires no privileged foot signals. After training, report
 the trainer's final average total episode reward against previous runs and use
 the launch command above for manual behavior evaluation.
 
+The interrupted asymmetric-critic run continues from its last complete export
+at 2,007,040 transitions. Its continuation uses the same settings and the remaining
+budget, with optimizer/RNG/local step count restarted:
+
+```sh
+uv run op3-train --config outputs/asymmetric-critic/config.json \
+  --initialize-from outputs/asymmetric-critic/checkpoints/000002007040 \
+  --num-timesteps 27992960 --num-evals 15 \
+  --output outputs/asymmetric-critic-continued
+uv run op3-play outputs/asymmetric-critic-continued
+```
+
+The continuation is already launched locally; the training command above records
+its recipe and requires a new output directory if repeated. Its log is
+`outputs/asymmetric-critic-continued.log`; `finished.json` inside the run directory
+marks completion. See `CONFIG.md` for step accounting.
+
 ## Focused checks
 
 ```sh
