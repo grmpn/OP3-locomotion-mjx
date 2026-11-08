@@ -503,6 +503,9 @@ uv run op3-play outputs/upright-contact-area-scratch-40m
 
 This uses seed 0 and 21 evaluations, preserving the roughly 2M-step checkpoint
 interval. No checkpoint is loaded. The output directory must be new.
+The local run completed 40,140,800 transitions; its final trainer mean episode
+return was 71.7568, versus 71.2868 for the preceding warm-start experiment under
+the same rewards. See `EXPERIMENTS.md` for the comparison and limitations.
 
 ## Focused checks
 

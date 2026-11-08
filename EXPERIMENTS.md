@@ -1018,3 +1018,30 @@ Request 40,000,000 transitions and 21 evaluations to retain the preceding
 This new run's budget supersedes the previous experiment's completed early-stop
 instruction. Report the trainer's final average episode return and play command;
 leave post-training behavior assessment to the user.
+
+### Completed 40M run
+
+Finished all 40,140,800 transitions in 2,425.3 seconds (40.4 minutes) on the
+RTX 3070 Laptop GPU. `run.json` confirms `initialize_from="None"`, and the saved
+configuration matches the recipe. Final export:
+`outputs/upright-contact-area-scratch-40m/checkpoints/000040140800`.
+
+| Run / evaluation | Trainer mean total episode return | Reward comparison |
+| --- | ---: | --- |
+| Scratch 40M, initial untrained policy | 63.1253 | Latest weights |
+| Scratch 40M, final | 71.7568 | Latest weights |
+| Sole-area warm start, latest saved 24M | 71.2868 | Identical weights |
+| Earlier asymmetric continuation, final | 48.6393 | Upright 1, area 0; different rewards |
+| Earlier upright/air-time full run, final | 43.1005 | Upright 1, area 0; different rewards |
+
+The final trainer evaluation averaged 500 control steps per episode, with mean
+per-step planar velocity error 0.01897 m/s and yaw error 0.09900 rad/s. Weighted
+upright and sole-area episode contributions were 29.8614 and 4.1913. All logged
+metrics were finite with no contact-buffer overflow. The final return exceeds
+the preceding warm-start export by 0.4700 under the same reward definition; this
+single-run trainer comparison does not establish better gait or standing posture.
+No post-training behavior suite was run.
+
+Completion is recorded in the run's `finished.json`; comparison data is in
+`outputs/scratch-40m-comparison.json`. Manual launch:
+`uv run op3-play outputs/upright-contact-area-scratch-40m`.

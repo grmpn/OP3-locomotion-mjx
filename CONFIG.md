@@ -522,6 +522,7 @@ PPO update settings remain identical.
 
 The requested budget is 40,000,000 transitions with 21 evaluations (initial
 plus 20 training epochs), retaining the 2,007,040-step evaluation/export cadence.
-Brax rounds to 40,140,800 actual transitions. Training uses 512 environments,
-32 evaluation environments, batch size 128 × 4 and unroll length 20. This is a
-new experiment; the separately selected demo remains `outputs/op3-policy`.
+Brax rounds to 40,140,800 actual transitions, all completed. Final export:
+`outputs/upright-contact-area-scratch-40m/checkpoints/000040140800`. Training used
+512 environments, 32 evaluation environments, batch size 128 × 4 and unroll
+length 20. The separately selected demo remains `outputs/op3-policy`.
