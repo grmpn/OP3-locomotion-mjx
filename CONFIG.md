@@ -6,7 +6,7 @@ Current values describe the selected policy in `outputs/op3-policy/`
 “Default if different” lists values used by a fresh training run without overrides.
 A dash means the code default matches the current value.
 
-The current training experiment is the [30M torque-symmetry scratch run](#current-30m-torque-symmetry-scratch-run-2026-11-08-utc)
+The current training experiment is the [20M torque-symmetry warm start](#current-20m-torque-symmetry-warm-start-2026-11-08-utc)
 below; its overrides are separate from the selected demo and code defaults.
 
 ## PPO hyperparameters
@@ -532,7 +532,7 @@ Brax rounds to 40,140,800 actual transitions, all completed. Final export:
 512 environments, 32 evaluation environments, batch size 128 × 4 and unroll
 length 20. The separately selected demo remains `outputs/op3-policy`.
 
-## Current 30M torque-symmetry scratch run (2026-11-08 UTC)
+## Preceding 30M torque-symmetry scratch run (2026-11-08 UTC)
 
 Configuration: `configs/torque_symmetry_scratch_30m.json`. Run directory:
 `outputs/torque-symmetry-scratch-30m`. Actor, critic, normalization, optimizer and
@@ -574,3 +574,22 @@ all other terms. Actor/critic inputs remain 64/70; torque history is reward
 state only and is not exposed to either MLP. Model, action mappings, observation
 normalization, control timing and native inference are unchanged. Results and
 experiment rationale belong in `EXPERIMENTS.md`.
+
+## Current 20M torque-symmetry warm start (2026-11-08 UTC)
+
+Configuration: `configs/torque_symmetry_warm_start_20m.json`. Run directory:
+`outputs/torque-symmetry-warm-start-20m`. Initialize actor, critic and observation
+normalization from the preceding 40M scratch run's final export:
+`outputs/upright-contact-area-scratch-40m/checkpoints/000040140800`.
+Optimizer, RNG, environment histories and local step count restart; this is a
+policy warm start, not a full training-state resume.
+
+Use the identical reward objective and settings from the 30M torque experiment:
+`torque_symmetry=-0.1`, `torque_window_seconds=2.0`, upright +3, area +0.5,
+slip −5, air time +2, 64/70-input asymmetric networks, balanced commands, fixed
+standing resets, seed 0, 512 training/32 evaluation environments, batch 128 × 4
+and unroll 20. All other PPO, model, timing and normalization settings are
+unchanged. Override only `num_timesteps=20_000_000` and `num_evals=11` (initial
+evaluation plus ten epochs), retaining the 2,007,040-step export cadence.
+Expected full-batch total: 20,070,400 additional transitions, or 60,211,200 in
+the saved source lineage. The separately selected demo remains `outputs/op3-policy`.

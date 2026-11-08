@@ -1119,3 +1119,26 @@ No post-training behavior suite was run; leave gait assessment to the user.
 
 Comparison data: `outputs/torque-symmetry-30m-comparison.json`. Manual launch:
 `uv run op3-play outputs/torque-symmetry-scratch-30m`.
+
+## D029 Torque-symmetry warm start from the 40M scratch policy, additional 20M
+
+**2026-11-08 UTC.** The user requested training with the torque penalty starting
+from the previous 40M scratch run for 20M steps. Initialize from the exact final
+export `outputs/upright-contact-area-scratch-40m/checkpoints/000040140800`.
+Restore actor, critic and observation normalization; optimizer, RNG, environment
+histories and local step count restart. This tests adaptation of the previously
+trained policy to the new objective, instead of learning it from scratch.
+
+Recipe: `configs/torque_symmetry_warm_start_20m.json`. Output:
+`outputs/torque-symmetry-warm-start-20m`. Preserve D028's reward formula/weights,
+including the −0.1 torque-symmetry weight and two-second sliding window, and all
+other environment/network/PPO settings. Request 20,000,000 additional transitions
+with 11 evaluations (initial plus ten epochs), rounding to 20,070,400 additional
+transitions. Seed 0, 512 training/32 evaluation environments; 2,007,040-step
+evaluation/export cadence. The source lineage totals 60,211,200 saved transitions.
+
+Compare the final trainer mean episode return against D028's 34.2463 under
+identical rewards. The source 40M run's 71.7568 excludes the new torque penalty;
+the initial warm-start evaluation will measure it under the new objective.
+Report the final reward and play command; leave post-training gait assessment
+to the user. No application-code or reward changes are needed for this run.

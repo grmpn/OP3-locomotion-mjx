@@ -531,6 +531,22 @@ the preceding 40M scratch run without this penalty. These totals use different
 reward definitions. No post-training behavior suite was run; use the play
 command above to assess the gait.
 
+To apply the same torque penalty to the preceding 40M scratch policy and train
+for 20M additional transitions:
+
+```sh
+uv run op3-train --config configs/torque_symmetry_warm_start_20m.json \
+  --initialize-from outputs/upright-contact-area-scratch-40m/checkpoints/000040140800 \
+  --output outputs/torque-symmetry-warm-start-20m
+uv run op3-play outputs/torque-symmetry-warm-start-20m
+```
+
+This restores actor, critic and observation statistics from the 40M scratch
+export. Optimizer, RNG, environment histories and local step count restart.
+The output directory must be new. With 11 evaluations, Brax rounds the additional
+budget to 20,070,400 transitions. All reward coefficients match the 30M torque
+experiment above; the initialization differs.
+
 ## Focused checks
 
 ```sh
