@@ -540,8 +540,10 @@ RNG initialize fresh with seed 0; no checkpoint is loaded.
 
 Relative to the preceding 40M scratch recipe, change only `torque_symmetry` from
 0 to −0.1, request 30,000,000 transitions and use 16 evaluations (initial plus
-15 epochs). Brax rounds to 30,105,600 transitions at a 2,007,040-step export
-interval. Retain 512 training/32 evaluation environments, batch 128 × 4,
+15 epochs). Completed all 30,105,600 rounded transitions at a 2,007,040-step
+export interval. Final export:
+`outputs/torque-symmetry-scratch-30m/checkpoints/000030105600`.
+Retain 512 training/32 evaluation environments, batch 128 × 4,
 unroll 20, balanced commands, fixed standing resets, upright +3, area +0.5,
 slip −5 and air time +2. Other settings match the preceding recipe.
 

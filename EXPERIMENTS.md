@@ -1083,3 +1083,39 @@ passed. A fresh 10,240-transition GPU PPO smoke run completed and exported
 native CPU inference steps were finite. The sandboxed reload stalled, so it was
 stopped and rerun successfully outside the restricted runtime. This smoke policy
 is not used to initialize the full run.
+
+### Completed 30M run
+
+Finished 30,105,600 transitions in 1,905.3 seconds (31.8 minutes) on the RTX 3070
+Laptop GPU. Final export:
+`outputs/torque-symmetry-scratch-30m/checkpoints/000030105600`.
+The saved run configuration exactly matches the recipe, `initialize_from="None"`
+confirms fresh initialization, and `finished.json` records completion. Final
+export configuration/mapping and step metadata match the run. All logged
+metrics are finite, with no physics buffer overflow. Final training throughput
+was approximately 16.9k transitions/s.
+
+| Run / evaluation | Trainer mean total episode return | Reward comparison |
+| --- | ---: | --- |
+| Torque symmetry, initial untrained policy | 62.6075 | New penalty −0.1, two-second window |
+| Torque symmetry, final 30,105,600 | 34.2463 | Same new rewards |
+| Previous scratch 40M, final | 71.7568 | No torque-symmetry penalty; otherwise identical rewards |
+| Sole-area warm start, latest saved 24M | 71.2868 | No torque-symmetry penalty; otherwise identical rewards |
+| Asymmetric continuation, final | 48.6393 | No torque penalty; upright 1, area 0; different rewards |
+
+The new penalty contributed −27.8922 to the final mean episode return, compared
+with −0.5178 for the initial untrained policy. Final episodes averaged 500
+control steps; mean per-step planar/yaw errors were 0.06158 m/s and 0.20261 rad/s.
+The preceding 40M scratch run's corresponding errors were 0.01897 m/s and
+0.09900 rad/s. The new run's final return excluding only its torque penalty was
+62.1385; that arithmetic is not a retraining or evaluation under the old objective.
+
+Optimization was uneven: mean return fell to 19.3953 at 20M, recovered to
+35.4517 at 26M, regressed to 25.9054 at 28M, then finished at 34.2463. This run
+does not show improved command tracking in the trainer metrics. The additional
+negative term changes total-return comparisons, and torque-usage symmetry does
+not by itself establish gait symmetry. Keep the selected demo unchanged.
+No post-training behavior suite was run; leave gait assessment to the user.
+
+Comparison data: `outputs/torque-symmetry-30m-comparison.json`. Manual launch:
+`uv run op3-play outputs/torque-symmetry-scratch-30m`.

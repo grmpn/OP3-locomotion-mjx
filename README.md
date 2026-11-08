@@ -525,6 +525,12 @@ upright +3, sole area +0.5 and the asymmetric critic. No checkpoint is loaded.
 The output directory must be new; Brax rounds to 30,105,600 transitions.
 See `CONFIG.md` for the exact formula and `EXPERIMENTS.md` for results.
 
+The local run completed all 30,105,600 transitions. Final trainer mean episode
+return was 34.2463, including −27.8922 from torque symmetry, versus 71.7568 for
+the preceding 40M scratch run without this penalty. These totals use different
+reward definitions. No post-training behavior suite was run; use the play
+command above to assess the gait.
+
 ## Focused checks
 
 ```sh
