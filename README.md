@@ -310,13 +310,11 @@ line connecting their shared origin to the base:
   world coordinates. It should remain vertical even when the robot leans.
 - **Orange:** the actual MuJoCo gravity direction, pointing down.
 
-The lower overlay reports body tilt, the angle between policy-derived up and
-true world up, and both gravity vectors. The policy's raw unit gravity input is
-shown in body coordinates, before saved observation normalization; the true
-gravity vector is shown in world coordinates in m/s². Values follow the current
-displayed pose using the same gravity calculation as the actor observation.
-The policy does not have a separate learned up-vector estimate. The arrows are
-display geometry only. Use `--no-vectors` to hide them.
+The arrows follow the current displayed pose using the actor's gravity
+calculation before observation normalization. The policy does not have a separate
+learned up-vector estimate. The arrows are display geometry only; use
+`--no-vectors` to hide them. There is no lower legend or numeric overlay, keeping
+the feet visible. Command and keyboard information remains at the top.
 
 ## Environment conventions
 

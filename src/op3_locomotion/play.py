@@ -25,7 +25,7 @@ def gravity_directions(quaternion, gravity_body, gravity_world):
 
 
 def add_gravity_vectors(scene, qpos, gravity_body, gravity_world):
-    """Add decorative arrows beside the torso; return the diagnostic overlay text."""
+    """Add decorative arrows beside the torso without covering the feet with text."""
     directions = gravity_directions(qpos[3:7], gravity_body, gravity_world)
     # Offset the shared origin so the robot's meshes do not hide the arrows.
     origin = qpos[:3] + np.array([0.0, -0.22, 0.12])
@@ -48,17 +48,6 @@ def add_gravity_vectors(scene, qpos, gravity_body, gravity_world):
         strict=True,
     ):
         connector(origin, origin + length * direction, mujoco.mjtGeom.mjGEOM_ARROW, width, color)
-
-    tilt = np.degrees(np.arccos(np.clip(np.dot(directions[0], directions[1]), -1, 1)))
-    agreement = np.degrees(np.arccos(np.clip(np.dot(directions[1], -directions[2]), -1, 1)))
-    body_text = " ".join(f"{value:+.3f}" for value in gravity_body)
-    world_text = " ".join(f"{value:+.2f}" for value in gravity_world)
-    return (
-        "GREEN: body +Z | CYAN: policy-derived up | ORANGE: true gravity\n"
-        f"Body tilt: {tilt:.1f} deg | Policy/world up difference: {agreement:.3f} deg\n"
-        f"Policy gravity (body, before normalization): [{body_text}]\n"
-        f"True gravity (world, m/s^2): [{world_text}]"
-    )
 
 
 class KeyboardCommand:
@@ -214,7 +203,7 @@ def main():
                 gravity_body = np.asarray(
                     policy_gravity(simulation.data.qpos, simulation.data.qvel)
                 )
-                vector_text = add_gravity_vectors(
+                add_gravity_vectors(
                     scene, simulation.data.qpos, gravity_body, env.model.opt.gravity
                 )
             width, height = glfw.get_framebuffer_size(window)
@@ -228,15 +217,6 @@ def main():
                 status,
                 context,
             )
-            if args.vectors:
-                mujoco.mjr_overlay(
-                    mujoco.mjtFont.mjFONT_NORMAL,
-                    mujoco.mjtGridPos.mjGRID_BOTTOMLEFT,
-                    viewport,
-                    vector_text,
-                    "",
-                    context,
-                )
             glfw.swap_buffers(window)
             remaining = env.dt - (time.monotonic() - tick)
             if remaining > 0:
