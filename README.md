@@ -399,7 +399,7 @@ with normal-force weights, then summed over feet carrying more than 1 N. It is
 active at zero command too; airborne/unloaded feet receive no slip penalty.
 These sensors do not change the 64 actor observations; the optional asymmetric
 critic also uses their derived support information. Sensors are omitted when
-both foot-reward weights are zero and the asymmetric critic is off. Air time uses the
+all three foot-reward weights are zero and the asymmetric critic is off. Air time uses the
 same force readings, sampled at the 2 ms physics timestep: a foot is supported
 above 1 N, otherwise it is unsupported. After observing support during a motion
 command, accumulate that foot's unsupported duration and pay it once on landing.
@@ -413,8 +413,16 @@ earns nothing. A fall receives no air-time bonus. A 0.1 s swing earns
 `2 × 0.1 × 0.02 = 0.004` on touchdown. Physics timestep measures duration; the
 common control timestep scales the reward once. Air time means **unsupported**
 time, so evaluate actual sole clearance too: unloading does not guarantee lift.
-No clearance reward is enabled. The selected `outputs/op3-policy` predates both
+No clearance reward is enabled. The selected `outputs/op3-policy` predates these
 foot rewards; trial evidence is recorded separately in `EXPERIMENTS.md`.
+
+The optional `foot_contact_area` reward estimates the fraction of each original
+sole near the floor, using area-weighted samples without double-counting the
+overlapping sole boxes. It is gated by actual floor force (>1 N), then averaged
+over touching feet; airborne feet earn nothing. A Gaussian distance width of
+2 mm makes this a smooth geometric proxy for area contact. Penetration also
+reduces the score. It uses the existing contact sensors and adds no observations.
+The term is disabled by default; see `CONFIG.md` for its exact formula.
 
 Evaluation reports mean/maximum completed unsupported duration per foot and the
 fraction of samples with both feet unsupported, alongside slip and tracking.
@@ -465,6 +473,23 @@ its recipe and requires a new output directory if repeated. Its log is
 `outputs/asymmetric-critic-continued.log`; `finished.json` inside the run directory
 marks completion. See `CONFIG.md` for step accounting.
 
+## Upright and sole-area experiment
+
+The full upright/sole-area experiment triples the preceding run's upright weight
+from 1 to 3 and adds a 0.5 contact-area weight, retaining the asymmetric critic:
+
+```sh
+uv run op3-train --config configs/upright_contact_area.json \
+  --initialize-from outputs/asymmetric-critic-continued/checkpoints/000028098560 \
+  --output outputs/upright-contact-area
+uv run op3-play outputs/upright-contact-area
+```
+
+This requests 30M additional transitions from the latest policy weights and
+normalization; optimizer/RNG/step count restart. The output directory must be
+new. The changed rewards make total episode returns incomparable without
+accounting for those changes. Use the viewer for behavior assessment.
+
 ## Focused checks
 
 ```sh
@@ -476,6 +501,7 @@ uv run python scripts/check_air_time.py
 uv run python scripts/check_standing_resets.py --gpu
 uv run python scripts/check_asymmetric_critic.py --gpu
 uv run python scripts/check_viewer_vectors.py
+uv run python scripts/check_contact_area.py --gpu
 # Check a reduced hull profile with the same native/MJX action sequence:
 uv run python scripts/check_env.py --gpu --collision-maxhullvert 8
 ```

@@ -29,6 +29,9 @@ class RewardConfig:
     foot_air_time: float = 2.0
     air_time_contact_force: float = 1.0  # N, supported above this floor load
     air_time_command_threshold: float = 0.05  # fraction of each trained command bound
+    foot_contact_area: float = 0.0  # optional mean near-floor sole fraction of touching feet
+    area_contact_force: float = 1.0  # N, minimum summed floor load per foot
+    area_height_sigma: float = 0.002  # m, width of the smooth sole-to-floor proximity score
     termination: float = -2.0
     sigma_linear: float = 0.15  # m/s
     sigma_yaw: float = 0.4  # rad/s
@@ -74,6 +77,12 @@ class EnvConfig:
             raise ValueError("Invalid air-time weight, support force or command threshold")
         if self.physics_dt <= 0 or self.control_dt < self.physics_dt:
             raise ValueError("Require 0 < physics_dt <= control_dt")
+        if (
+            not 0 <= self.reward.foot_contact_area < float("inf")
+            or not 0 < self.reward.area_contact_force < float("inf")
+            or not 0 < self.reward.area_height_sigma < float("inf")
+        ):
+            raise ValueError("Invalid foot contact-area weight, force threshold or height width")
         if abs(self.action_repeat * self.physics_dt - self.control_dt) > 1e-8:
             raise ValueError("control_dt must be an integer multiple of physics_dt")
         if self.episode_seconds < self.control_dt or self.command_seconds < self.control_dt:

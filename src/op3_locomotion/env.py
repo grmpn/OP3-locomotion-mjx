@@ -21,7 +21,14 @@ from op3_locomotion.observations import (
     observe,
 )
 from op3_locomotion.policy import position_targets
-from op3_locomotion.rewards import foot_slip, reward_terms, update_air_time, weighted_terms
+from op3_locomotion.rewards import (
+    foot_contact_area,
+    foot_slip,
+    reward_terms,
+    sole_area_samples,
+    update_air_time,
+    weighted_terms,
+)
 
 
 def default_assets() -> Path:
@@ -49,7 +56,12 @@ def load_model(assets: Path, config: EnvConfig):
         for mesh in spec.meshes:
             if mesh.name in collision_meshes:
                 mesh.maxhullvert = config.collision_maxhullvert
-    if config.reward.foot_slip or config.reward.foot_air_time or config.asymmetric_critic:
+    if (
+        config.reward.foot_slip
+        or config.reward.foot_air_time
+        or config.reward.foot_contact_area
+        or config.asymmetric_critic
+    ):
         for side in ("l", "r"):
             body = spec.body(f"{side}_ank_roll_link")
             boxes = [geom for geom in body.geoms if geom.type == mujoco.mjtGeom.mjGEOM_BOX]
@@ -142,7 +154,12 @@ class OP3Env(Env):
         mujoco.mj_forward(m, d)
         self.foot_bodies = [m.body(f"{side}_ank_roll_link").id for side in ("l", "r")]
         self.slip_sensor_indices = None
-        if config.reward.foot_slip or config.reward.foot_air_time or config.asymmetric_critic:
+        if (
+            config.reward.foot_slip
+            or config.reward.foot_air_time
+            or config.reward.foot_contact_area
+            or config.asymmetric_critic
+        ):
             self.slip_sensor_indices = jp.array(
                 [
                     [
@@ -162,6 +179,11 @@ class OP3Env(Env):
             [[i for i in feet if m.geom_bodyid[i] == body] for body in self.foot_bodies]
         )
         self.foot_geom_sizes = jp.array(m.geom_size)[self.foot_geom_indices]
+        if config.reward.foot_contact_area:
+            ids = np.asarray(self.foot_geom_indices)
+            if not np.allclose(m.geom_quat[ids], [1, 0, 0, 0], atol=1e-9, rtol=0):
+                raise ValueError("Contact-area reward requires axis-aligned sole boxes")
+            self.sole_points, self.sole_areas = sole_area_samples(m.geom_pos[ids], m.geom_size[ids])
         self.floor_height = float(d.geom_xpos[m.geom("floor").id, 2])
         floor_height = min(
             d.geom_xpos[i, 2] - np.abs(d.geom_xmat[i].reshape(3, 3)[2]) @ m.geom_size[i]
@@ -282,6 +304,24 @@ class OP3Env(Env):
         contacts = data.sensordata[self.slip_sensor_indices].reshape(2, 8, 6)
         load = jp.sum(jp.maximum(contacts[..., 0], 0.0), axis=-1)
         return load > self.config.reward.air_time_contact_force
+
+    def contact_area_reward(self, data):
+        # Foot-body coordinates -> world heights above the unchanged horizontal floor.
+        bodies = jp.array(self.foot_bodies)
+        rotation = data.xmat[bodies].reshape(2, 3, 3)
+        heights = (
+            data.xpos[bodies, 2, None]
+            + jp.einsum("fi,fni->fn", rotation[:, 2, :], self.sole_points)
+            - self.floor_height
+        )
+        return foot_contact_area(
+            heights,
+            self.sole_areas,
+            data.sensordata[self.slip_sensor_indices].reshape(2, 8, 6),
+            rotation[:, 2, 2],
+            self.config.reward.area_contact_force,
+            self.config.reward.area_height_sigma,
+        )
 
     def targets(self, action):
         return position_targets(
@@ -438,6 +478,9 @@ class OP3Env(Env):
                 else 0.0
             ),
             air_time=air_time_bonus,
+            contact_area=self.contact_area_reward(data)
+            if self.config.reward.foot_contact_area
+            else 0.0,
         )
         weighted = weighted_terms(terms, self.config.reward)
         # No positive reward on a fall/invalid transition. Metrics reflect the paid terms.

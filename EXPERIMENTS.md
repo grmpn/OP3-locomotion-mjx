@@ -918,3 +918,53 @@ the usual run artifacts. Launch metadata is in
 `outputs/asymmetric-critic-continued-launch.json`. Completion requires its
 `finished.json`; report the final `eval/episode_reward` and the new play command
 when complete. No post-training behavior suite is requested.
+
+The continuation finished at 28,098,560 new transitions (30,105,600 saved
+asymmetric-critic transitions including its source). Final trainer mean episode
+return was 48.6393, versus 43.1005 for `upright-air-time-full` under identical
+reward weights, and 40.3249 for `balanced` under its older reward definition.
+The subsequent viewer diagnostic showed roughly 7° torso tilt at zero command;
+policy-derived up matched true world up. This was a short display check.
+
+## D026 Stronger upright reward and contact-gated sole-area shaping
+
+**2026-11-08 UTC.** The user requested increased upright reward, a reward for
+maximum foot surface area on the floor only while touching, and a full training
+run. Use `configs/upright_contact_area.json`: upright 1→3 and optional sole-area
+weight +0.5, retaining all other rewards and the asymmetric critic. Start from
+`outputs/asymmetric-critic-continued/checkpoints/000028098560` and run 30M
+additional transitions, seed 0, 512 environments, 32 eval environments and 16
+evaluations. Optimizer/RNG/local step count restart. Output:
+`outputs/upright-contact-area`.
+
+MuJoCo's rigid-foot contacts are discrete, so the term is explicitly a smooth
+geometric area estimate, not a physical contact-patch measurement (see the
+[MuJoCo contact model](https://mujoco.readthedocs.io/en/stable/computation/index.html#contact)). Integrate
+`exp(-(height / 0.002)²)` over the union of the two original sole boxes using
+80 area-weighted samples per foot. Gate each foot on >1 N actual floor load;
+average over loaded feet to avoid a separate two-feet-down bonus. No contact
+means zero; deep penetration and sideways/upside-down soles cannot earn a high
+score. The default terrain and robot dynamics remain unchanged.
+
+The combined peak planar/yaw tracking weight (4) exceeds upright plus sole-area
+weight (3.5). This still needs manual behavior assessment: changing two terms
+together is not an ablation, and larger total returns are expected from the
+reward changes alone. Keep the separately selected demo unchanged. Compare
+trainer final mean total episode returns with reward definitions identified;
+provide the play command and leave post-training behavior evaluation to the user.
+
+CPU checks passed union-area accounting (0.00962 m² per foot), contact-force
+gating, zero airborne score, flat-over-tilted ordering, one/two-foot normalization,
+penetration handling, unchanged model/action mappings and legacy weight=0.
+Nominal loaded-standing area fraction was 0.999992.
+
+The same checks passed on GPU, including finite batched MJX reset/step outputs,
+no contact-buffer overflow and once-only area reward scaling. A one-ulp GPU
+summation difference motivated clamping the normalized area fraction to [0, 1].
+
+A 10,240-transition PPO smoke run with the full 512-environment batch completed
+and exported a policy (`outputs/contact-area-ppo-smoke`). Reload preserved the
+new reward settings and mapping, and one native inference step produced finite
+outputs. Its post-update mean episode return was 68.6532 under the new rewards;
+the full experiment still starts from the original latest completed policy,
+not the smoke update. Ruff lint/format and diff checks passed.

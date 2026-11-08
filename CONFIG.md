@@ -180,6 +180,7 @@ refer to the 12 controlled leg joints; effort uses all 20 actuator torques `τ`.
 | `termination` | Physical failure indicator | −2.0 |
 | `foot_slip` | Sum over supported feet of `sum(F_n × (v_t1² + v_t2²)) / sum(F_n)`, (m/s)² | 0 in selected policy; **−5.0 code default** |
 | `foot_air_time` | Sum of completed unsupported durations at touchdown, seconds | 0 in selected policy; **+2.0 code default** |
+| `foot_contact_area` | Mean smooth near-floor sole-area fraction over loaded feet; zero with no loaded feet | 0; experiment below uses +0.5 |
 
 | Tracking width | Value |
 | --- | --- |
@@ -188,6 +189,8 @@ refer to the 12 controlled leg joints; effort uses all 20 actuator torques `τ`.
 | `slip_contact_force` | 1.0 N; require summed foot normal force strictly above this |
 | `air_time_contact_force` | 1.0 N; a foot is supported strictly above this summed normal force |
 | `air_time_command_threshold` | 0.05; require `max(abs(command) / command_max) > 0.05` |
+| `area_contact_force` | 1.0 N; require summed foot normal force strictly above this |
+| `area_height_sigma` | 0.002 m; Gaussian width for absolute sole-to-floor distance |
 
 Per-step reward is `control_dt × sum(weight × term)`, with `control_dt=0.02`;
 Brax adds no further scaling (`reward_scaling=1.0`). On physical failure, replace
@@ -207,8 +210,25 @@ the optional critic uses the derived binary support state and air-time history.
 The force-weighted squared speed is summed over loaded feet at the last physics
 substep, then weighted and timestep-scaled once. Missing contacts are zero;
 airborne/unloaded feet are excluded. Zero velocity commands do not disable this
-penalty. Sensors are omitted only when both foot-reward weights are zero and
+penalty. Sensors are omitted only when all three foot-reward weights are zero and
 the asymmetric critic is disabled.
+
+The optional contact-area term partitions the union of the two original sole
+boxes into five disjoint rectangles per foot. It uses a fixed 4×4 midpoint grid
+in each rectangle (80 samples per foot), with cell areas as weights. The union
+area is 0.00962 m² per foot; overlapping boxes contribute area only once. For
+world sample height `h_i` relative to the default floor and sample area `A_i`,
+each foot's score is `sum(A_i * exp(-(h_i / area_height_sigma)²)) / sum(A_i)`.
+This is a smooth area-proximity estimate, not a measured physical contact patch.
+It is maximal for a flat sole at floor height and penalizes penetration too.
+
+Only feet with summed floor force > `area_contact_force` are included. Their
+scores are averaged by the number of loaded feet; a foot with its local sole
+normal pointing sideways/down earns zero. No loaded feet means zero reward.
+There is no command gate: standing and moving use the same rule. Sampling is
+at the final physics substep, and weight/control-dt scaling is applied once.
+This adds no observation or temporal state. Old exports and code defaults keep
+the weight zero. The existing physical-failure override also zeros this term.
 
 Air-time history is sampled at every 0.002 s physics substep using the same floor
 force sensors. Each foot must first be supported under a motion command to arm
@@ -447,7 +467,7 @@ Both MLPs remain 128×128×128; actor input size 64, critic input size 70.
 Other PPO, physics, command, reward and normalization settings are identical to
 `configs/upright_air_time.json`. The selected demo remains `outputs/op3-policy`.
 
-### Current continuation (2026-11-08 UTC)
+### Completed continuation (2026-11-08 UTC)
 
 Run directory: `outputs/asymmetric-critic-continued`. Load the saved configuration
 from `outputs/asymmetric-critic/config.json` and warm-start actor, critic and both
@@ -457,7 +477,30 @@ step count restart; this is not a full training-state resume.
 
 Override only `num_timesteps=27_992_960` and `num_evals=15` (initial evaluation
 plus 14 training epochs). This preserves the original 2,007,040-transition
-evaluation/export interval after Brax rounds to complete batches. Expected
-completion is 28,098,560 new transitions, or 30,105,600 including the saved
+evaluation/export interval after Brax rounds to complete batches. Completed
+28,098,560 new transitions, or 30,105,600 including the saved
 2,007,040 asymmetric-critic transitions. All other run settings above remain
 unchanged, including seed 0. Continuation exports use the new local step count.
+
+## Current upright / sole-area experiment (2026-11-08 UTC)
+
+Reproducible configuration: `configs/upright_contact_area.json`. Output:
+`outputs/upright-contact-area`. Warm-start actor, critic and observation
+normalization from `outputs/asymmetric-critic-continued/checkpoints/000028098560`;
+optimizer, RNG and local step count restart.
+
+| Setting | Experiment value |
+| --- | --- |
+| `upright` | +3.0; preceding asymmetric run +1.0; code default remains +0.3 |
+| `foot_contact_area` | +0.5; new optional term, default 0 |
+| `area_contact_force` / `area_height_sigma` | 1.0 N / 0.002 m |
+| `foot_slip` / `foot_air_time` | −5 / +2, unchanged |
+| `asymmetric_critic` | True; 64 actor / 70 critic inputs |
+| `num_timesteps` / `num_evals` | 30,000,000 additional transitions / 16 evaluations |
+| `num_envs` / `num_eval_envs` | 512 / 32 |
+| `seed` / `command_sampling` / reset | 0 / balanced / fixed nominal standing |
+
+All remaining reward, network, PPO, normalization, physics and control settings
+match the preceding asymmetric run. Expected full-batch completion is 30,105,600
+new transitions. Individual area reward is logged as `reward/foot_contact_area`.
+This experiment does not replace the separately selected `outputs/op3-policy`.

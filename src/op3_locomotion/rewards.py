@@ -3,8 +3,54 @@
 from dataclasses import asdict
 
 import jax.numpy as jp
+import numpy as np
 
 from op3_locomotion.observations import base_motion
+
+
+def sole_area_samples(positions, sizes):
+    """Precompute area-weighted sole samples, without counting overlapping boxes twice.
+
+    The pinned OP3 has two coplanar, axis-aligned boxes per foot. Partition their
+    union at rectangle edges, then use 4x4 midpoint quadrature in each tile.
+    This NumPy setup runs only during environment construction, never in rollouts.
+    """
+    all_points, all_weights = [], []
+    fractions = (np.arange(4) + 0.5) / 4
+    for centers, half_sizes in zip(np.asarray(positions), np.asarray(sizes), strict=True):
+        bottoms = centers[:, 2] - half_sizes[:, 2]
+        if not np.allclose(bottoms, bottoms[0], atol=1e-9, rtol=0):
+            raise ValueError("Contact-area reward requires coplanar sole boxes")
+        lower, upper = centers[:, :2] - half_sizes[:, :2], centers[:, :2] + half_sizes[:, :2]
+        xs, ys = (np.unique(np.concatenate((lower[:, axis], upper[:, axis]))) for axis in (0, 1))
+        points, weights = [], []
+        for x0, x1 in zip(xs[:-1], xs[1:], strict=True):
+            for y0, y1 in zip(ys[:-1], ys[1:], strict=True):
+                center = np.array([(x0 + x1) / 2, (y0 + y1) / 2])
+                if not np.any(np.all((center > lower) & (center < upper), axis=-1)):
+                    continue
+                for x in x0 + (x1 - x0) * fractions:
+                    for y in y0 + (y1 - y0) * fractions:
+                        points.append((x, y, bottoms[0]))
+                        weights.append((x1 - x0) * (y1 - y0) / 16)
+        all_points.append(points)
+        all_weights.append(weights)
+    return jp.asarray(all_points), jp.asarray(all_weights)
+
+
+def foot_contact_area(heights, areas, contacts, sole_up, minimum_force, height_sigma):
+    """Smooth near-floor area fraction, averaged over loaded feet; zero in flight.
+
+    Absolute height penalizes penetration too. A side/upside-down foot earns no
+    area credit. Averaging avoids an extra bonus just for having two stance feet.
+    """
+    load = jp.sum(jp.maximum(contacts[..., 0], 0.0), axis=-1)
+    touching = load > minimum_force
+    fraction = jp.sum(areas * jp.exp(-jp.square(heights / height_sigma)), axis=-1)
+    fraction /= jp.sum(areas, axis=-1)
+    fraction = jp.clip(fraction, 0.0, 1.0)
+    eligible = touching & (sole_up > 0)
+    return jp.sum(jp.where(eligible, fraction, 0.0)) / jp.maximum(jp.sum(touching), 1)
 
 
 def update_air_time(air_time, armed, supported, moving, dt):
@@ -47,6 +93,7 @@ def reward_terms(
     config,
     slip=0.0,
     air_time=0.0,
+    contact_area=0.0,
 ):
     gravity, linear, angular = base_motion(data.qpos, data.qvel)
     positions = data.qpos[qpos_indices]
@@ -68,6 +115,7 @@ def reward_terms(
         "standing_posture": jp.where(jp.all(command == 0), posture, 0.0),
         "foot_slip": jp.asarray(slip),
         "foot_air_time": jp.asarray(air_time),
+        "foot_contact_area": jp.asarray(contact_area),
         "termination": terminated.astype(jp.float32),
     }
 
