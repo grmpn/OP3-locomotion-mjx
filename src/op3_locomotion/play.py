@@ -11,7 +11,54 @@ import numpy as np
 
 from op3_locomotion.checkpoints import load_export, validate_mapping
 from op3_locomotion.env import OP3Env
+from op3_locomotion.observations import base_motion
 from op3_locomotion.policy import PolicySimulation
+
+
+def gravity_directions(quaternion, gravity_body, gravity_world):
+    """World-space body +Z, up reconstructed from the raw observation, and gravity."""
+    rotation = np.empty(9)
+    mujoco.mju_quat2Mat(rotation, np.asarray(quaternion, dtype=np.float64))
+    rotation = rotation.reshape(3, 3)
+    directions = np.stack((rotation[:, 2], rotation @ -gravity_body, gravity_world))
+    return directions / np.linalg.norm(directions, axis=1, keepdims=True)
+
+
+def add_gravity_vectors(scene, qpos, gravity_body, gravity_world):
+    """Add decorative arrows beside the torso; return the diagnostic overlay text."""
+    directions = gravity_directions(qpos[3:7], gravity_body, gravity_world)
+    # Offset the shared origin so the robot's meshes do not hide the arrows.
+    origin = qpos[:3] + np.array([0.0, -0.22, 0.12])
+
+    def connector(start, end, kind, width, color):
+        if scene.ngeom >= scene.maxgeom:
+            return
+        geom = scene.geoms[scene.ngeom]
+        mujoco.mjv_initGeom(geom, kind, np.zeros(3), start, np.eye(3).ravel(), color)
+        mujoco.mjv_connector(geom, kind, width, start, end)
+        geom.category = mujoco.mjtCatBit.mjCAT_DECOR
+        scene.ngeom += 1
+
+    connector(qpos[:3], origin, mujoco.mjtGeom.mjGEOM_LINE, 1, [0.7, 0.7, 0.7, 1])
+    for direction, length, width, color in zip(
+        directions,
+        (0.24, 0.20, 0.20),
+        (0.006, 0.009, 0.009),
+        ((0.2, 1.0, 0.2, 1), (0.1, 0.85, 1.0, 1), (1.0, 0.45, 0.1, 1)),
+        strict=True,
+    ):
+        connector(origin, origin + length * direction, mujoco.mjtGeom.mjGEOM_ARROW, width, color)
+
+    tilt = np.degrees(np.arccos(np.clip(np.dot(directions[0], directions[1]), -1, 1)))
+    agreement = np.degrees(np.arccos(np.clip(np.dot(directions[1], -directions[2]), -1, 1)))
+    body_text = " ".join(f"{value:+.3f}" for value in gravity_body)
+    world_text = " ".join(f"{value:+.2f}" for value in gravity_world)
+    return (
+        "GREEN: body +Z | CYAN: policy-derived up | ORANGE: true gravity\n"
+        f"Body tilt: {tilt:.1f} deg | Policy/world up difference: {agreement:.3f} deg\n"
+        f"Policy gravity (body, before normalization): [{body_text}]\n"
+        f"True gravity (world, m/s^2): [{world_text}]"
+    )
 
 
 class KeyboardCommand:
@@ -79,6 +126,12 @@ def main():
     parser.add_argument("--assets", type=Path)
     parser.add_argument("--seconds", type=float, help="Optional viewer smoke-check duration")
     parser.add_argument("--reset-pose", choices=("standing", "left", "right"), default="standing")
+    parser.add_argument(
+        "--vectors",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Show body up, policy-derived up and true gravity (default: enabled)",
+    )
     args = parser.parse_args()
     jax.config.update("jax_platforms", "cpu")
     policy, config, mapping, _ = load_export(args.checkpoint)
@@ -88,6 +141,10 @@ def main():
     # Compile inference before opening the window.
     simulation.step(np.zeros(3))
     simulation.reset()
+    # The first three actor inputs use this same function, before normalization.
+    policy_gravity = jax.jit(lambda q, v: base_motion(q, v)[0])
+    if args.vectors:
+        policy_gravity(simulation.data.qpos, simulation.data.qvel).block_until_ready()
     if not glfw.init():
         raise SystemExit("GLFW could not open a display. Use op3-evaluate for headless inference.")
     window = glfw.create_window(960, 720, "OP3 locomotion", None, None)
@@ -153,6 +210,13 @@ def main():
                 mujoco.mjtCatBit.mjCAT_ALL,
                 scene,
             )
+            if args.vectors:
+                gravity_body = np.asarray(
+                    policy_gravity(simulation.data.qpos, simulation.data.qvel)
+                )
+                vector_text = add_gravity_vectors(
+                    scene, simulation.data.qpos, gravity_body, env.model.opt.gravity
+                )
             width, height = glfw.get_framebuffer_size(window)
             viewport = mujoco.MjrRect(0, 0, width, height)
             mujoco.mjr_render(viewport, scene, context)
@@ -164,6 +228,15 @@ def main():
                 status,
                 context,
             )
+            if args.vectors:
+                mujoco.mjr_overlay(
+                    mujoco.mjtFont.mjFONT_NORMAL,
+                    mujoco.mjtGridPos.mjGRID_BOTTOMLEFT,
+                    viewport,
+                    vector_text,
+                    "",
+                    context,
+                )
             glfw.swap_buffers(window)
             remaining = env.dt - (time.monotonic() - tick)
             if remaining > 0:

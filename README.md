@@ -302,6 +302,22 @@ final check advances 9.98 simulated seconds in the ten-second viewer loop while
 rendering about 9.6 fps (`outputs/demo-viewer-final.json`). GPU training does not
 imply GPU rendering. `--seconds 5` performs a finite viewer startup check.
 
+The viewer also shows three orientation arrows beside the torso, with a grey
+line connecting their shared origin to the base:
+
+- **Green:** the robot's body +Z axis, which tilts with the torso.
+- **Cyan:** up reconstructed from the policy's gravity input and rotated into
+  world coordinates. It should remain vertical even when the robot leans.
+- **Orange:** the actual MuJoCo gravity direction, pointing down.
+
+The lower overlay reports body tilt, the angle between policy-derived up and
+true world up, and both gravity vectors. The policy's raw unit gravity input is
+shown in body coordinates, before saved observation normalization; the true
+gravity vector is shown in world coordinates in m/s². Values follow the current
+displayed pose using the same gravity calculation as the actor observation.
+The policy does not have a separate learned up-vector estimate. The arrows are
+display geometry only. Use `--no-vectors` to hide them.
+
 ## Environment conventions
 
 Body axes are +x forward, +y left, +z up; positive yaw is counterclockwise from
@@ -459,6 +475,7 @@ uv run python scripts/check_slip_controls.py
 uv run python scripts/check_air_time.py
 uv run python scripts/check_standing_resets.py --gpu
 uv run python scripts/check_asymmetric_critic.py --gpu
+uv run python scripts/check_viewer_vectors.py
 # Check a reduced hull profile with the same native/MJX action sequence:
 uv run python scripts/check_env.py --gpu --collision-maxhullvert 8
 ```

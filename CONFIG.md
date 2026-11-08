@@ -336,6 +336,21 @@ released axis. W/S control x, A/D y, Q/E yaw; opposing held keys cancel.
 These viewer ramps do not alter training's sampled command schedule. Existing
 catch-up cap is 0.25 s; command ramps follow simulated time if rendering is slow.
 
+### Viewer orientation display
+
+| Setting | Value |
+| --- | --- |
+| `--vectors` / `--no-vectors` | Enabled by default; arrows and numeric overlay only |
+| Raw policy gravity | `base_motion(qpos, qvel)[0]`, identical to actor `obs[0:3]` before running normalization; current displayed pose |
+| Green arrow | Body +Z rotated to world coordinates; length 0.24 m, width 0.006 m |
+| Cyan arrow | Negative raw policy gravity rotated from body to world; unit direction, length 0.20 m, width 0.009 m |
+| Orange arrow | Normalized `model.opt.gravity` in world coordinates; length 0.20 m, width 0.009 m |
+| Shared arrow origin | Base position plus world offset `[0, -0.22, 0.12]` m; grey 1-pixel line back to base |
+| Tilt readout | Angle between body +Z and policy-derived up, degrees |
+| Agreement readout | Angle between policy-derived up and negative true gravity, degrees |
+| Numeric gravity | Body-frame unit policy input and world-frame true gravity in m/s² |
+| Geometry / update | Decorative scene geoms; each rendered frame; no physics, observation, policy or training changes |
+
 ## Slip and collision trials (2026-11-07)
 
 These are experimental exports, separate from the selected `outputs/op3-policy`.
