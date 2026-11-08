@@ -501,6 +501,11 @@ optimizer, RNG and local step count restart.
 | `seed` / `command_sampling` / reset | 0 / balanced / fixed nominal standing |
 
 All remaining reward, network, PPO, normalization, physics and control settings
-match the preceding asymmetric run. Expected full-batch completion is 30,105,600
-new transitions. Individual area reward is logged as `reward/foot_contact_area`.
-This experiment does not replace the separately selected `outputs/op3-policy`.
+match the preceding asymmetric run. The requested full-batch target was
+30,105,600 new transitions; the user subsequently requested an early stop if
+the next checkpoint did not improve. Latest saved/viewed export:
+`outputs/upright-contact-area/checkpoints/000024084480` (24,084,480 additional
+transitions). The saved run configuration retains the original 30M request;
+`stopped.json` records the early stop. Individual area reward is logged as
+`reward/foot_contact_area`. This experiment does not replace the separately
+selected `outputs/op3-policy`.

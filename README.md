@@ -490,6 +490,10 @@ normalization; optimizer/RNG/step count restart. The output directory must be
 new. The changed rewards make total episode returns incomparable without
 accounting for those changes. Use the viewer for behavior assessment.
 
+The local run was stopped at the user's request after the 24,084,480-step
+checkpoint failed to improve on the previous evaluation. That is the latest
+export opened by the play command above; the 30M budget was not completed.
+
 ## Focused checks
 
 ```sh

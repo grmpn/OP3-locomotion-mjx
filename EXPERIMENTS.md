@@ -968,3 +968,35 @@ new reward settings and mapping, and one native inference step produced finite
 outputs. Its post-update mean episode return was 68.6532 under the new rewards;
 the full experiment still starts from the original latest completed policy,
 not the smoke update. Ruff lint/format and diff checks passed.
+
+### Result and user-requested early stop
+
+The user subsequently requested opening the latest checkpoint if reward was
+still plateaued after the next checkpoint. At that point, the 22,077,440-step
+evaluation was 71.5435. The next evaluation at 24,084,480 scored 71.2868, so it
+did not improve. Stop the trainer and open that latest saved export in the
+viewer with gravity diagnostics. This applies the user's stopping condition;
+one checkpoint difference is not a statistical convergence claim.
+
+The original 30M budget was not completed. The last logged training step before
+SIGTERM was 24,678,400, but the latest complete policy remains 24,084,480.
+`outputs/upright-contact-area/stopped.json` records the stop and policy-export
+limitation. The final saved evaluation occurred after 1,243.7 seconds of trainer
+time. No post-training behavior suite was run.
+
+| Run / evaluation | Trainer mean total episode return | Reward definition |
+| --- | ---: | --- |
+| New run, initial policy | 68.6602 | Upright 3, area 0.5, slip −5, air time 2 |
+| New run, latest saved 24,084,480 | 71.2868 | Same new rewards |
+| Previous asymmetric continuation, final | 48.6393 | Upright 1, area 0, slip −5, air time 2 |
+| Earlier upright/air-time full run, final | 43.1005 | Upright 1, area 0, slip −5, air time 2 |
+| Balanced refinement, final | 40.3249 | Upright 0.3, area/slip/air time 0 |
+
+The same-objective gain from initialization is 2.6266. The final area contribution
+was 3.9380 versus 0.2266 initially, while upright contribution was 29.6388 versus
+29.8012 initially. Thus the logs support a larger sole-area score but do not
+establish improved torso alignment. Across the trainer's sampled command episodes,
+final mean planar/yaw errors were 0.01631 m/s and 0.09568 rad/s, with mean episode
+length 500 steps. Metrics stayed finite with no buffer overflow. Larger returns
+than older runs also reflect changed rewards. Manual assessment remains with
+the user. Relaunch: `uv run op3-play outputs/upright-contact-area`.
