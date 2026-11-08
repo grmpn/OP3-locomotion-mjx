@@ -492,6 +492,18 @@ The local run was stopped at the user's request after the 24,084,480-step
 checkpoint failed to improve on the previous evaluation. That is the latest
 export opened by the play command above; the 30M budget was not completed.
 
+To train fresh actor/critic parameters and observation statistics for 40M steps
+with those same reward weights:
+
+```sh
+uv run op3-train --config configs/upright_contact_area_scratch_40m.json \
+  --output outputs/upright-contact-area-scratch-40m
+uv run op3-play outputs/upright-contact-area-scratch-40m
+```
+
+This uses seed 0 and 21 evaluations, preserving the roughly 2M-step checkpoint
+interval. No checkpoint is loaded. The output directory must be new.
+
 ## Focused checks
 
 ```sh

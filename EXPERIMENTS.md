@@ -1000,3 +1000,21 @@ final mean planar/yaw errors were 0.01631 m/s and 0.09568 rad/s, with mean episo
 length 500 steps. Metrics stayed finite with no buffer overflow. Larger returns
 than older runs also reflect changed rewards. Manual assessment remains with
 the user. Relaunch: `uv run op3-play outputs/upright-contact-area`.
+
+## D027 Train the latest reward configuration from scratch for 40M steps
+
+**2026-11-08 UTC.** The user requested a fresh policy for 40 million steps using
+the latest weights. Interpret weights as the latest reward coefficients:
+upright +3, contact area +0.5, slip −5 and air time +2, with every other reward
+coefficient/width unchanged. Actor, critic, observation normalization and
+optimizer initialize from scratch; no source policy is loaded.
+
+Recipe: `configs/upright_contact_area_scratch_40m.json`. Output:
+`outputs/upright-contact-area-scratch-40m`. Seed 0, 512 training environments,
+32 evaluation environments, 64/70-input asymmetric actor/critic, balanced
+commands, fixed standing resets and unchanged model/physics/control settings.
+Request 40,000,000 transitions and 21 evaluations to retain the preceding
+2,007,040-step evaluation/export cadence. Expected full-batch total: 40,140,800.
+This new run's budget supersedes the previous experiment's completed early-stop
+instruction. Report the trainer's final average episode return and play command;
+leave post-training behavior assessment to the user.

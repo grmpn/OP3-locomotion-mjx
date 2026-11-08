@@ -480,7 +480,7 @@ evaluation/export interval after Brax rounds to complete batches. Completed
 2,007,040 asymmetric-critic transitions. All other run settings above remain
 unchanged, including seed 0. Continuation exports use the new local step count.
 
-## Current upright / sole-area experiment (2026-11-08 UTC)
+## Upright / sole-area warm-start experiment (2026-11-08 UTC)
 
 Reproducible configuration: `configs/upright_contact_area.json`. Output:
 `outputs/upright-contact-area`. Warm-start actor, critic and observation
@@ -507,3 +507,21 @@ transitions). The saved run configuration retains the original 30M request;
 `stopped.json` records the early stop. Individual area reward is logged as
 `reward/foot_contact_area`. This experiment does not replace the separately
 selected `outputs/op3-policy`.
+
+## Current 40M scratch run (2026-11-08 UTC)
+
+Configuration: `configs/upright_contact_area_scratch_40m.json`. Run directory:
+`outputs/upright-contact-area-scratch-40m`. Actor, critic, observation statistics,
+optimizer and RNG initialize fresh with seed 0; no `--initialize-from` source.
+
+Reward weights and widths exactly match the preceding sole-area experiment:
+upright +3, contact area +0.5, slip −5, air time +2, floor-contact threshold 1 N,
+area height width 0.002 m. All other rewards, physics, fixed standing reset,
+balanced commands, 64/70-input asymmetric networks, normalization settings and
+PPO update settings remain identical.
+
+The requested budget is 40,000,000 transitions with 21 evaluations (initial
+plus 20 training epochs), retaining the 2,007,040-step evaluation/export cadence.
+Brax rounds to 40,140,800 actual transitions. Training uses 512 environments,
+32 evaluation environments, batch size 128 × 4 and unroll length 20. This is a
+new experiment; the separately selected demo remains `outputs/op3-policy`.
