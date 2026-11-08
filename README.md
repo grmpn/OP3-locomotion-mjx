@@ -2,11 +2,9 @@
 
 Train a Robotis OP3 walking policy with PPO using JAX, MuJoCo MJX, and Brax.
 
-<video src="walk.mp4" controls width="720"></video>
+![Robotis OP3 walking with the 40M scratch policy](walk.gif)
 
-[Watch the video](walk.mp4)
-
-The video shows the [40M scratch run](configs/upright_contact_area_scratch_40m.json),
+The GIF shows the [40M scratch run](configs/upright_contact_area_scratch_40m.json),
 trained from scratch with these rewards and **no torque symmetry penalty**:
 
 | Reward | What it does | Weight |
