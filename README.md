@@ -547,6 +547,12 @@ The output directory must be new. With 11 evaluations, Brax rounds the additiona
 budget to 20,070,400 transitions. All reward coefficients match the 30M torque
 experiment above; the initialization differs.
 
+The local warm-start run completed all 20,070,400 additional transitions. Final
+trainer mean episode return was 59.6050, versus 57.9228 at initialization under
+the same reward and 34.2463 for the preceding torque-from-scratch run. The final
+torque penalty contributed −11.3181. See `EXPERIMENTS.md` for details; use the play
+command above for manual gait assessment.
+
 ## Focused checks
 
 ```sh

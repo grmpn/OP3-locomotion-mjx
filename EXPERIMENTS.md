@@ -1142,3 +1142,41 @@ identical rewards. The source 40M run's 71.7568 excludes the new torque penalty;
 the initial warm-start evaluation will measure it under the new objective.
 Report the final reward and play command; leave post-training gait assessment
 to the user. No application-code or reward changes are needed for this run.
+
+### Completed warm-start run
+
+Completed all 20,070,400 additional transitions in 1,041.9 seconds (17.4 minutes)
+on the RTX 3070 Laptop GPU. Final export:
+`outputs/torque-symmetry-warm-start-20m/checkpoints/000020070400`.
+The typed configuration check confirmed that only budget/evaluation count differ
+from the torque-scratch recipe. The trainer accepted the source checkpoint's
+model/action/observation mapping and restored it successfully. Saved run metadata
+names the exact 40M source; the final export's configuration, mapping and step
+metadata match the completed run. All logged metrics are finite, with no buffer
+overflow. Final training throughput was approximately 19.6k transitions/s.
+
+| Run / evaluation | Trainer mean total episode return | Torque-penalty contribution | Reward comparison |
+| --- | ---: | ---: | --- |
+| Warm start, initial restored policy | 57.9228 | −13.7087 | Current torque rewards |
+| Warm start, final additional 20M | 59.6050 | −11.3181 | Same rewards |
+| Torque scratch, final 30M | 34.2463 | −27.8922 | Same rewards |
+| Source scratch 40M, final | 71.7568 | 0 | Torque penalty absent; otherwise same weights |
+
+Final return improved by 1.6822 relative to the restored policy evaluated under
+the same objective, and the torque penalty decreased by 2.3906 in magnitude.
+Mean episode length was 498.5 steps, versus 500 initially. Aggregate per-step
+planar/yaw errors were 0.01865 m/s and 0.12782 rad/s; these are sums of the
+trainer's episode errors divided by total episode steps. The source run's
+reported final errors were 0.01897 m/s and 0.09900 rad/s. These are trainer
+evaluation summaries, not a new paired command-tracking test.
+
+The highest trainer evaluation was 64.5226 at 8,028,160 additional transitions,
+with penalty −7.1394 and mean episode length 500. Subsequent performance was
+uneven: mean episode length fell to 444.75 at 14M before recovering. The requested
+20M budget was completed; the final export remains the default for the play
+command. A better final return than D028 does not establish a visually symmetric
+gait. No post-training behavior suite was run; leave assessment to the user.
+
+Completion: `outputs/torque-symmetry-warm-start-20m/finished.json`. Comparison:
+`outputs/torque-symmetry-warm-start-20m-comparison.json`. Manual launch:
+`uv run op3-play outputs/torque-symmetry-warm-start-20m`.

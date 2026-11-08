@@ -591,5 +591,7 @@ standing resets, seed 0, 512 training/32 evaluation environments, batch 128 × 4
 and unroll 20. All other PPO, model, timing and normalization settings are
 unchanged. Override only `num_timesteps=20_000_000` and `num_evals=11` (initial
 evaluation plus ten epochs), retaining the 2,007,040-step export cadence.
-Expected full-batch total: 20,070,400 additional transitions, or 60,211,200 in
-the saved source lineage. The separately selected demo remains `outputs/op3-policy`.
+Completed full-batch total: 20,070,400 additional transitions, or 60,211,200 in
+the saved source lineage. Final export:
+`outputs/torque-symmetry-warm-start-20m/checkpoints/000020070400`.
+The separately selected demo remains `outputs/op3-policy`.
