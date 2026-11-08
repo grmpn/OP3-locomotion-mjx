@@ -8,6 +8,20 @@ import numpy as np
 from op3_locomotion.observations import base_motion
 
 
+def update_torque_window(history, index, squared_torque_integral):
+    """Sliding integral imbalance per mirrored joint, then sum absolute values.
+
+    Input is (left/right, six named leg joints), integrated at physics rate over
+    one control interval, in (Nm)^2 s. Store signed differences, not instantaneous
+    absolute differences, so alternating left/right effort can balance in time.
+    Re-sum the finite buffer to avoid long-lived running-sum roundoff drift.
+    """
+    difference = squared_torque_integral[0] - squared_torque_integral[1]
+    history = history.at[index].set(difference)
+    penalty = jp.sum(jp.abs(jp.sum(history, axis=0)))
+    return history, (index + 1) % history.shape[0], penalty
+
+
 def sole_area_samples(positions, sizes):
     """Precompute area-weighted sole samples, without counting overlapping boxes twice.
 
@@ -94,6 +108,7 @@ def reward_terms(
     slip=0.0,
     air_time=0.0,
     contact_area=0.0,
+    torque_symmetry=0.0,
 ):
     gravity, linear, angular = base_motion(data.qpos, data.qvel)
     positions = data.qpos[qpos_indices]
@@ -107,6 +122,7 @@ def reward_terms(
         "vertical_velocity": jp.square(linear[2]),
         "roll_pitch_velocity": jp.sum(jp.square(angular[:2])),
         "effort": jp.sum(jp.square(data.actuator_force)),
+        "torque_symmetry": jp.asarray(torque_symmetry),
         "action_rate": jp.sum(jp.square(action - previous_action)),
         "joint_limits": jp.sum(
             jp.maximum(lower - positions, 0.0) + jp.maximum(positions - upper, 0.0)

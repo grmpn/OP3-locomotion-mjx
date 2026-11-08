@@ -1045,3 +1045,41 @@ No post-training behavior suite was run.
 Completion is recorded in the run's `finished.json`; comparison data is in
 `outputs/scratch-40m-comparison.json`. Manual launch:
 `uv run op3-play outputs/upright-contact-area-scratch-40m`.
+
+## D028 Two-second cumulative squared-torque symmetry, scratch 30M
+
+**2026-11-08 UTC.** The user reports asymmetric walking and requests a penalty
+for the left/right difference in cumulative torque squared over two seconds,
+then 30M steps from scratch. Compare each of the six mirrored leg-joint pairs:
+sum the absolute differences of their sliding squared-torque integrals. This
+allows alternating effort in time while preventing cancellation across joints.
+Use actual unit-gear actuator torques sampled at 500 Hz; update the two-second
+window and pay its penalty at 50 Hz. See `CONFIG.md` for units and reset rules.
+
+Choose weight −0.1 for this first trial (default disabled). This costs 0.1 reward
+per second for each 1 (Nm)² s of summed integral imbalance. It is an experiment
+coefficient, not a tuned result. Retain the global effort penalty −0.002 so
+adding unnecessary torque to the less active leg still has a cost. The new term
+is not command-gated, so it also applies to standing and turns. Matching torque
+usage alone does not establish symmetric foot placement or improved walking.
+
+Recipe: `configs/torque_symmetry_scratch_30m.json`. Output:
+`outputs/torque-symmetry-scratch-30m`. All other rewards/settings match D027:
+upright +3, area +0.5, slip −5, air time +2, asymmetric 64/70-input actor/critic,
+balanced commands, fixed standing resets, seed 0, 512 training environments and
+32 evaluation environments. No source checkpoint; parameters, normalization,
+optimizer and RNG start fresh. Request 30,000,000 transitions and 16 evaluations,
+rounding to 30,105,600 transitions. Total returns now include a new negative term
+and are not directly comparable with the preceding 71.7568 final mean return.
+Report trainer evaluation results and leave behavioral assessment to the user.
+
+Validation passed on CPU and GPU: independent 305-step rolling-window oracle,
+alternating effort cancellation, per-joint isolation, exact expiry, configuration
+validation, named unit-gear mapping, physics-substep integration, once-only reward
+scaling, standing/command-change history and batched fall/timeout reset. The GPU
+log is `outputs/torque-symmetry-checks-gpu.log`. Ruff lint/format and diff checks
+passed. A fresh 10,240-transition GPU PPO smoke run completed and exported
+`outputs/torque-symmetry-ppo-smoke`; reload preserved settings/mapping and ten
+native CPU inference steps were finite. The sandboxed reload stalled, so it was
+stopped and rerun successfully outside the restricted runtime. This smoke policy
+is not used to initialize the full run.

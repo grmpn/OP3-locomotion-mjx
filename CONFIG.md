@@ -6,6 +6,9 @@ Current values describe the selected policy in `outputs/op3-policy/`
 “Default if different” lists values used by a fresh training run without overrides.
 A dash means the code default matches the current value.
 
+The current training experiment is the [30M torque-symmetry scratch run](#current-30m-torque-symmetry-scratch-run-2026-11-08-utc)
+below; its overrides are separate from the selected demo and code defaults.
+
 ## PPO hyperparameters
 
 | Setting | Current value | Default if different |
@@ -173,6 +176,7 @@ refer to the 12 controlled leg joints; effort uses all 20 actuator torques `τ`.
 | `vertical_velocity` | `v_z²` in (m/s)² | −0.5 |
 | `roll_pitch_velocity` | `ω_x² + ω_y²` in (rad/s)² | −0.05 |
 | `effort` | `sum(τ²)` in Nm² | −0.002 |
+| `torque_symmetry` | `sum_j(abs(E_left,j - E_right,j))`, with `E` the sliding integral of joint torque squared, (Nm)² s | 0 default/selected policy; current experiment −0.1 |
 | `action_rate` | `sum((a - previous_action)²)` | −0.02 |
 | `joint_limits` | `sum(max(lower - q, 0) + max(q - upper, 0))` in rad | −1.0 |
 | `posture` | `sum((q - q₀)²)` in rad² | −0.05 |
@@ -191,6 +195,7 @@ refer to the 12 controlled leg joints; effort uses all 20 actuator torques `τ`.
 | `air_time_command_threshold` | 0.05; require `max(abs(command) / command_max) > 0.05` |
 | `area_contact_force` | 1.0 N; require summed foot normal force strictly above this |
 | `area_height_sigma` | 0.002 m; Gaussian width for absolute sole-to-floor distance |
+| `torque_window_seconds` | 2.0 s; integer multiple of `control_dt`, at least one control step |
 
 Per-step reward is `control_dt × sum(weight × term)`, with `control_dt=0.02`;
 Brax adds no further scaling (`reward_scaling=1.0`). On physical failure, replace
@@ -508,7 +513,7 @@ transitions). The saved run configuration retains the original 30M request;
 `reward/foot_contact_area`. This experiment does not replace the separately
 selected `outputs/op3-policy`.
 
-## Current 40M scratch run (2026-11-08 UTC)
+## Preceding 40M scratch run (2026-11-08 UTC)
 
 Configuration: `configs/upright_contact_area_scratch_40m.json`. Run directory:
 `outputs/upright-contact-area-scratch-40m`. Actor, critic, observation statistics,
@@ -526,3 +531,44 @@ Brax rounds to 40,140,800 actual transitions, all completed. Final export:
 `outputs/upright-contact-area-scratch-40m/checkpoints/000040140800`. Training used
 512 environments, 32 evaluation environments, batch size 128 × 4 and unroll
 length 20. The separately selected demo remains `outputs/op3-policy`.
+
+## Current 30M torque-symmetry scratch run (2026-11-08 UTC)
+
+Configuration: `configs/torque_symmetry_scratch_30m.json`. Run directory:
+`outputs/torque-symmetry-scratch-30m`. Actor, critic, normalization, optimizer and
+RNG initialize fresh with seed 0; no checkpoint is loaded.
+
+Relative to the preceding 40M scratch recipe, change only `torque_symmetry` from
+0 to −0.1, request 30,000,000 transitions and use 16 evaluations (initial plus
+15 epochs). Brax rounds to 30,105,600 transitions at a 2,007,040-step export
+interval. Retain 512 training/32 evaluation environments, batch 128 × 4,
+unroll 20, balanced commands, fixed standing resets, upright +3, area +0.5,
+slip −5 and air time +2. Other settings match the preceding recipe.
+
+For each of the six mirrored joint pairs (hip yaw/roll/pitch, knee, ankle
+pitch/roll), compute `E_side,j = sum(τ_side,j² × physics_dt)` over the trailing
+two seconds. The actual unit-gear leg actuator torques are sampled at all ten
+physics substeps per control step. The raw term is
+`sum_j(abs(E_left,j - E_right,j))`, in (Nm)² s. Different joints cannot cancel
+each other's imbalance; alternating left/right effort at the same joint can.
+Head/arm actuators do not contribute. There is no normalization by total torque,
+window duration, joint count, or actuator force limit, and no command gate.
+
+The fixed-shape ring buffer contains 100 control-interval differences × six
+joint pairs. It advances every 20 ms and sums its entries directly to avoid
+running-sum drift. Reset zero-fills the window, so the first two seconds use
+only elapsed episode history; no artificial pre-reset torque or delayed onset.
+Command changes preserve history. Physical termination and time-limit
+auto-reset both clear the buffer and index independently for each environment.
+When weight is zero (including older configurations), history is empty and
+substep accumulation is skipped.
+
+The weighted rate is `−0.1 × raw_term`; the usual outer `control_dt=0.02`
+converts it to per-step reward exactly once. The inner `physics_dt` belongs to
+the torque integral, not reward scaling. A sustained raw imbalance of 1 (Nm)² s
+costs 0.1 reward per simulated second. Existing failure-transition override
+still applies. Log the paid contribution as `reward/torque_symmetry` alongside
+all other terms. Actor/critic inputs remain 64/70; torque history is reward
+state only and is not exposed to either MLP. Model, action mappings, observation
+normalization, control timing and native inference are unchanged. Results and
+experiment rationale belong in `EXPERIMENTS.md`.

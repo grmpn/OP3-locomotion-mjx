@@ -27,6 +27,7 @@ from op3_locomotion.rewards import (
     reward_terms,
     sole_area_samples,
     update_air_time,
+    update_torque_window,
     weighted_terms,
 )
 
@@ -400,6 +401,10 @@ class OP3Env(Env):
             "feet_air_time": jp.zeros(2),
             "feet_air_armed": jp.zeros(2, dtype=jp.bool_),
             "critic_air_time": jp.zeros(2),
+            "torque_history": jp.zeros(
+                (self.config.torque_window_steps if self.config.reward.torque_symmetry else 0, 6)
+            ),
+            "torque_history_index": jp.array(0, dtype=jp.int32),
             "time_out": jp.array(0.0),
         }
         return State(
@@ -418,8 +423,11 @@ class OP3Env(Env):
         moving = moving > self.config.reward.air_time_command_threshold
 
         def substep(_, carry):
-            data, air_time, armed, bonus, critic_time = carry
+            data, air_time, armed, bonus, critic_time, torque_integral = carry
             data = mjx.step(self.mjx_model, data)
+            if self.config.reward.torque_symmetry:
+                leg_torque = data.actuator_force[self.actuator_indices].reshape(2, 6)
+                torque_integral += jp.square(leg_torque) * self.config.physics_dt
             if self.config.reward.foot_air_time or self.config.asymmetric_critic:
                 supported = self.foot_contact(data)
             if self.config.reward.foot_air_time:
@@ -429,9 +437,9 @@ class OP3Env(Env):
                 bonus += touchdown_bonus
             if self.config.asymmetric_critic:
                 critic_time = contact_air_time(critic_time, supported, self.config.physics_dt)
-            return data, air_time, armed, bonus, critic_time
+            return data, air_time, armed, bonus, critic_time, torque_integral
 
-        data, air_time, armed, air_time_bonus, critic_time = jax.lax.fori_loop(
+        data, air_time, armed, air_time_bonus, critic_time, torque_integral = jax.lax.fori_loop(
             0,
             self.config.action_repeat,
             substep,
@@ -441,11 +449,20 @@ class OP3Env(Env):
                 state.info["feet_air_armed"],
                 jp.array(0.0),
                 state.info["critic_air_time"],
+                jp.zeros((2, 6)),
             ),
         )
         gravity, linear, angular = base_motion(data.qpos, data.qvel)
         finite = jp.all(jp.isfinite(data.qpos)) & jp.all(jp.isfinite(data.qvel))
         finite &= jp.all(jp.isfinite(data.actuator_force))
+        finite &= jp.all(jp.isfinite(torque_integral))
+        torque_history = state.info["torque_history"]
+        torque_index = state.info["torque_history_index"]
+        torque_symmetry = jp.array(0.0)
+        if self.config.reward.torque_symmetry:
+            torque_history, torque_index, torque_symmetry = update_torque_window(
+                torque_history, torque_index, torque_integral
+            )
         # The pinned MJX Warp backend exposes buffer exhaustion per world here.
         overflow = (
             jp.any(data._impl.overflow != 0)
@@ -481,6 +498,7 @@ class OP3Env(Env):
             contact_area=self.contact_area_reward(data)
             if self.config.reward.foot_contact_area
             else 0.0,
+            torque_symmetry=torque_symmetry,
         )
         weighted = weighted_terms(terms, self.config.reward)
         # No positive reward on a fall/invalid transition. Metrics reflect the paid terms.
@@ -521,6 +539,8 @@ class OP3Env(Env):
             "feet_air_time": air_time,
             "feet_air_armed": armed,
             "critic_air_time": critic_time,
+            "torque_history": torque_history,
+            "torque_history_index": torque_index,
             "time_out": jp.array(0.0),
         }
         obs = jax.tree.map(jp.nan_to_num, self.observation(data, command, action, critic_time))
@@ -585,6 +605,8 @@ class AutoReset(Wrapper):
             "feet_air_time",
             "feet_air_armed",
             "critic_air_time",
+            "torque_history",
+            "torque_history_index",
         ):
             info[name] = select(fresh.info[name], info[name])
         info["time_out"] = info["truncation"]

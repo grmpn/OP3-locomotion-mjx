@@ -507,6 +507,24 @@ The local run completed 40,140,800 transitions; its final trainer mean episode
 return was 71.7568, versus 71.2868 for the preceding warm-start experiment under
 the same rewards. See `EXPERIMENTS.md` for the comparison and limitations.
 
+## Two-second torque-symmetry experiment
+
+Train from scratch for 30M transitions with a penalty on the difference between
+left/right cumulative squared joint torque over a sliding two-second window:
+
+```sh
+uv run op3-train --config configs/torque_symmetry_scratch_30m.json \
+  --output outputs/torque-symmetry-scratch-30m
+uv run op3-play outputs/torque-symmetry-scratch-30m
+```
+
+The penalty sums absolute differences between the six mirrored leg-joint
+integrals, with weight −0.1. All physics substeps contribute; episode resets
+clear history. Other settings match the preceding 40M scratch run, including
+upright +3, sole area +0.5 and the asymmetric critic. No checkpoint is loaded.
+The output directory must be new; Brax rounds to 30,105,600 transitions.
+See `CONFIG.md` for the exact formula and `EXPERIMENTS.md` for results.
+
 ## Focused checks
 
 ```sh
@@ -519,6 +537,7 @@ uv run python scripts/check_standing_resets.py --gpu
 uv run python scripts/check_asymmetric_critic.py --gpu
 uv run python scripts/check_viewer_vectors.py
 uv run python scripts/check_contact_area.py --gpu
+uv run python scripts/check_torque_symmetry.py --gpu
 # Check a reduced hull profile with the same native/MJX action sequence:
 uv run python scripts/check_env.py --gpu --collision-maxhullvert 8
 ```

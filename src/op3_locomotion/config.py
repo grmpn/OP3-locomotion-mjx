@@ -20,6 +20,8 @@ class RewardConfig:
     vertical_velocity: float = -0.5
     roll_pitch_velocity: float = -0.05
     effort: float = -0.002
+    torque_symmetry: float = 0.0  # penalty on mirrored joint squared-torque integrals
+    torque_window_seconds: float = 2.0
     action_rate: float = -0.02
     joint_limits: float = -1.0
     posture: float = -0.05
@@ -85,6 +87,16 @@ class EnvConfig:
             raise ValueError("Invalid foot contact-area weight, force threshold or height width")
         if abs(self.action_repeat * self.physics_dt - self.control_dt) > 1e-8:
             raise ValueError("control_dt must be an integer multiple of physics_dt")
+        if (
+            not -float("inf") < self.reward.torque_symmetry <= 0
+            or not self.control_dt <= self.reward.torque_window_seconds < float("inf")
+        ):
+            raise ValueError("Require finite nonpositive torque_symmetry and window >= control_dt")
+        if (
+            abs(self.torque_window_steps * self.control_dt - self.reward.torque_window_seconds)
+            > 1e-8
+        ):
+            raise ValueError("torque_window_seconds must be an integer multiple of control_dt")
         if self.episode_seconds < self.control_dt or self.command_seconds < self.control_dt:
             raise ValueError("Episode and command intervals must be at least one control step")
         if len(self.command_max) != 3 or min(self.command_max) <= 0:
@@ -116,6 +128,10 @@ class EnvConfig:
     @property
     def command_steps(self) -> int:
         return round(self.command_seconds / self.control_dt)
+
+    @property
+    def torque_window_steps(self) -> int:
+        return round(self.reward.torque_window_seconds / self.control_dt)
 
 
 @dataclass(frozen=True)
